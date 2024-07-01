@@ -1,5 +1,0 @@
-= Title
-:toc: right
-:docinfo: shared
-:source-highlighter: pygments
-:nofooter:

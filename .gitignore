@@ -1,13 +1,6 @@
 *
 
 !.gitignore
-!.gitmodules
-!.gitattributes
-
 !LICENSE
 !README.md
-!index.*
-!docinfo.html
-
-!.vscode
-!.vscode/**
+!uws

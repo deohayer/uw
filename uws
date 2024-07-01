@@ -1,0 +1,426 @@
+#!/usr/bin/env bash
+
+UWS_VERSION="0.1.0"
+
+###############################################################################
+# Completion
+###############################################################################
+
+function _uws_completion()
+{
+    # Completion does not work if script is specified.
+    UWS_COMP_WORDS=("${COMP_WORDS[@]:1:$((${#COMP_WORDS[@]} - 2))}")
+    for UWS_COMP_WORD in "${UWS_COMP_WORDS[@]}"; do
+        if [[ "${UWS_COMP_WORD:0:1}" != "-" && "${UWS_COMP_WORD}" != "?" && "${UWS_COMP_WORD}" != "!" ]]; then
+            COMPREPLY=($(compgen -o default || true))
+            return
+        fi
+    done
+    UWS_COMP_WORD="${COMP_WORDS[-1]}"
+    COMPREPLY=($(compgen -W "$(uws complete ${UWS_COMP_WORD} 2>/dev/null || true)" -- "${UWS_COMP_WORD}"))
+}
+
+if [[ $1 == "completion" ]]; then
+    complete -F _uws_completion uws
+    return
+fi
+
+###############################################################################
+# Definition
+###############################################################################
+
+#
+# Workspace: UWS_DIR.
+#
+
+# Search recursively in parent directories.
+# The first directory with .uws is the workspace root.
+UWS_DIR="${PWD}"
+while [[ "${UWS_DIR}" != "/" ]]; do
+    if [[ -d "${UWS_DIR}/.uws" ]]; then
+        PATH="${PATH}:${UWS_DIR}"
+        break
+    else
+        UWS_DIR="$(dirname "${UWS_DIR}")"
+    fi
+done
+
+# Reset UWS_DIR if .uws is not found.
+if [[ "${UWS_DIR}" == "/" && ! -d "/.uws" ]]; then
+    unset UWS_DIR
+fi
+
+#
+# Arguments: UWS_DAEMON and UWS_COMMAND.
+#
+
+# Daemon request must preceed the command.
+if [[ "$1" =~ ^[\?\!\^]$ ]]; then
+    UWS_DAEMON="$1"
+    # Shift so that the command can deal with the arguments naturally.
+    shift
+fi
+
+# The command is consumed indiscriminately: it can be a normal command or an option.
+UWS_COMMAND="$1"
+# Shift so that the command can deal with the arguments naturally.
+shift
+
+#
+# Database: UWS_DB_COMMANDS, UWS_DB_HELPS and uws_help().
+#
+
+# Default scripts. This array is used for fallback help texts and
+# for a workspace creation.
+declare -A UWS_DB_SCRIPTS=(
+    [hwl]="List available hardware."
+    [hwa]="Attach to the hardware."
+    [hwd]="Detach from the hardware."
+    [hwp]="Manage the power state of the hardware."
+    [hwr]="Retrieve files from the hardware."
+    [hwt]="Transfer files to the hardware."
+    [hws]="Start an interactive shell or execute a shell command."
+    [hwx]="Hardware command - requires attachment."
+    [swd]="Download software."
+    [swb]="Build software."
+    [swi]="Install software."
+    [swt]="Test software."
+    [swc]="Clean software."
+    [swx]="Software command - does not require attachment."
+)
+# Commands .
+# This array is extended with user-defined scripts in the workspace (if any).
+declare -a UWS_DB_COMMANDS=(
+    "init"
+    "bash-setup"
+    "bash-reset"
+)
+# Descriptions associated with the commands.
+declare -A UWS_DB_HELPS=(
+    [init]="Initialize a new workspace in an empty directory."
+    [bash-setup]="Setup the bash completion in ~/.bashrc."
+    [bash-reset]="Reset the bash completion in ~/.bashrc."
+)
+
+# Populate the database: local commands.
+if [[ -n "${UWS_DIR}" ]]; then
+    for command in $(ls -fd "${UWS_DIR}/"[hs]w* 2>/dev/null || true); do
+        command="$(basename "${command}")"
+        for script in "${!UWS_DB_SCRIPTS[@]}"; do
+            if [[ "${command}" =~ ^"${script}" ]]; then
+                comment="$(cat "${UWS_DIR}/${command}" | head -1 || true)"
+                if [[ ! "${comment}" =~ ^"# " ]]; then
+                    comment="${UWS_DB_SCRIPTS[${script}]}"
+                else
+                    comment="${comment:2}"
+                fi
+                UWS_DB_COMMANDS+=("${command}")
+                UWS_DB_HELPS[${command}]="${comment}"
+                break
+            fi
+        done
+    done
+fi
+
+# The help text.
+function uws_help()
+{
+    # Print header.
+    printf "\
+uws [DAEMON] [...]
+
+Uniform Workspace version ${UWS_VERSION}.
+
+Commands:
+"
+    # Determine the longest command name for nice formatting.
+    width=0
+    for command in "${UWS_DB_COMMANDS[@]}"; do
+        if [[ $(( ${#command} > ${width} )) != "0" ]]; then
+            width=${#command}
+        fi
+    done
+    # Print commands.
+    for command in "${UWS_DB_COMMANDS[@]}"; do
+        printf " * %-${width}s - ${UWS_DB_HELPS[${command}]}\n" "${command}"
+    done
+    # Print arguments.
+    printf '
+Positional arguments:
+  [DAEMON]    Daemon operation, applicable only to the workspace scripts.
+              If specified for a global command, it is ignored.
+              Allowed values:
+               * ! - Launch the script in background (nohup + disown).
+                     The output will be stored under .uws/<script>/<datetime>/log.txt.
+                     If the script is not provided, exits with an error.
+               * ? - Display all active daemons for the script.
+                     If the script is not provided, display all active daemons.
+               * ^ - Delete directories of the finished processes.
+                     If the script is not provided, delete for all scripts.
+
+Optional arguments:
+  -h/--help    Display the help text and exit.
+  --version    Display the version and exit.
+\n'
+}
+
+###############################################################################
+# Execution
+###############################################################################
+
+#
+# Handle daemon operation outside the workspace.
+#
+
+if [[ -n "${UWS_DAEMON}" ]]; then
+    if [[ -n "${UWS_COMMAND}" && ! "${UWS_COMMAND}" =~ ^[hs]w* ]]; then
+        echo "uws: Daemon operation error. Can be used only with scripts."
+        exit 1
+    fi
+    if [[ -z "${UWS_COMMAND}" && -z "${UWS_DIR}" ]]; then
+        echo "uws: Daemon operation error. Can be used only inside a workspace."
+        exit 1
+    fi
+fi
+
+#
+# uws complete
+#
+
+if [[ "${UWS_COMMAND}" == "complete" ]]; then
+    if [[ "${1:0:1}" == "-" ]]; then
+        echo "--help"
+        echo "--version"
+    else
+        for command in "${UWS_DB_COMMANDS[@]}"; do
+            echo "${command}"
+        done
+    fi
+    exit 0
+fi
+
+#
+# uws --version
+#
+
+if [[ "${UWS_COMMAND}" == "--version" ]]; then
+    echo "${UWS_VERSION}"
+    exit 0
+fi
+
+#
+# uws -h/--help
+#
+
+if [[ "${UWS_COMMAND}" == "--help" || "${UWS_COMMAND}" == "-h" ]] || [[ -z "${UWS_COMMAND}" && -z "${UWS_DAEMON}" ]]; then
+    uws_help
+    exit 0
+fi
+
+#
+# uws bash-setup
+#
+
+if [[ "${UWS_COMMAND}" == "bash-setup" ]]; then
+    printf '\nsource "$(which uws)" completion 2>/dev/null || true\n' >> "${HOME}/.bashrc"
+    exit 0
+fi
+
+#
+# uws bash-reset
+#
+
+if [[ "${UWS_COMMAND}" == "bash-reset" ]]; then
+    sed -i '/source "$(which uws)" completion 2>\/dev\/null || true/d' "${HOME}/.bashrc"
+    exit 0
+fi
+
+#
+# uws init
+#
+
+if [[ "${UWS_COMMAND}" == "init" ]]; then
+    # Overwrtite UWS_DIR. If not provided, defaults to the current directory.
+    UWS_DIR="$(realpath "${1:-"${PWD}"}")"
+    mkdir -p "${UWS_DIR}"
+    # The directory is not empty.
+    if [[ -n "$(ls -A ${UWS_DIR})" ]]; then
+        echo "uws: Failed to init, not an empty directory: ${UWS_DIR}"
+        exit 1
+    fi
+    # Populate the scripts.
+    for script in "${!UWS_DB_SCRIPTS[@]}"; do
+        printf "# ${UWS_DB_SCRIPTS[${script}]}\necho \"Not implemented.\"\n" > "${UWS_DIR}/${script}"
+    done
+    # Populate uws (script).
+    printf \
+'# Common environment, sourced before every call.
+
+# Information about the currently attached hardware.
+# If empty - there is no active attachment, most hw* scripts will not work.
+UWS_HW=""
+' > "${UWS_DIR}/uws"
+    # Populate .uws (directory).
+    mkdir -p "${UWS_DIR}/.uws"
+    printf "*\n!.gitignore\n" > "${UWS_DIR}/.uws/.gitignore"
+    # Populate .git* and README.md.
+    touch "${UWS_DIR}/.gitattributes"
+    touch "${UWS_DIR}/.gitignore"
+    touch "${UWS_DIR}/.gitmodules"
+    touch "${UWS_DIR}/README.md"
+    printf \
+'*
+!.gitattributes
+!.gitignore
+!.gitmodules
+!.uws
+!.uws/**
+!.vscode
+!.vscode/**
+!README.md
+!uws
+!hw*
+!sw*
+!_hw*
+!_sw*
+' > "${UWS_DIR}/.gitignore"
+    # Populate .vscode
+    mkdir -p "${UWS_DIR}/.vscode"
+    printf "*\n!.gitignore\n!*.json" > "${UWS_DIR}/.vscode/.gitignore"
+    printf \
+'{
+    "editor.bracketPairColorization.enabled": false,
+    "files.associations": {
+        "[hs]w?": "shellscript",
+        "[hs]w?-*": "shellscript",
+        "uws": "shellscript"
+    },
+    "files.watcherExclude": {
+        "**": true
+    }
+}' > "${UWS_DIR}/.vscode/settings.json"
+    # Success.
+    exit 0
+fi
+
+#
+# uws [daemon] [script]
+#
+
+# Retrieve PID for a daemon if it is active.
+# $1 - daemon directory path (.uws/<script>/<datetime>).
+function uws_deamon_pid()
+{
+    # Retrieve PID.
+    UWS_DAEMON_PID="$(cat "$1/pid.txt" 2>/dev/null || true)"
+    # Check if PID refers to an active process.
+    UWS_DAEMON_PID="$(ps -p "${UWS_DAEMON_PID}" 2>/dev/null | grep "${UWS_DAEMON_PID} " || true)"
+    echo "${UWS_DAEMON_PID}"
+}
+
+# Delete information about finished daemons for a script.
+# $1 - script name.
+function uws_daemon_wipe()
+{
+    UWS_SCRIPT_DIR="${UWS_DIR}/.uws/$1"
+    for daemon in $(ls "${UWS_SCRIPT_DIR}" 2>/dev/null || true); do
+        UWS_DAEMON_DIR="${UWS_SCRIPT_DIR}/${daemon}"
+        UWS_DAEMON_PID=($(uws_deamon_pid "${UWS_DAEMON_DIR}"))
+        # Remove the directory if the process is not active.
+        if [[ -z "${UWS_DAEMON_PID}" ]]; then
+            echo "Removing ${UWS_DAEMON_DIR}"
+            rm -rf "${UWS_DAEMON_DIR}" 2>/dev/null || true
+        fi 
+    done
+    # Try to remove the entire script directory, if it is empty.
+    rmdir "${UWS_SCRIPT_DIR}" 2>/dev/null || true
+}
+
+# Print information about active daemons for a script.
+# $1 - script name.
+function uws_daemon_info()
+{
+    UWS_SCRIPT_DIR="${UWS_DIR}/.uws/$1"
+    for daemon in $(ls "${UWS_SCRIPT_DIR}" 2>/dev/null || true); do
+        UWS_DAEMON_DIR="${UWS_SCRIPT_DIR}/${daemon}"
+        UWS_DAEMON_PID=($(uws_deamon_pid "${UWS_DAEMON_DIR}"))
+        # Print information if the process is active.
+        if [[ -n "${UWS_DAEMON_PID}" ]]; then
+            printf "%-20s  %-10s  ${UWS_DAEMON_DIR}/log.txt\n" "$1" "${UWS_DAEMON_PID}"
+        fi 
+    done
+}
+
+# Handle daemon operation in case if the script is not specified.
+if [[ -z "${UWS_COMMAND}" ]]; then
+    # Handle daemon info for all scripts.
+    if [[ "${UWS_DAEMON}" == "?" ]]; then
+        for command in "${UWS_DB_COMMANDS[@]}"; do
+            uws_daemon_info "${command}"
+        done
+        exit 0
+    fi
+    # Handle daemon wipe for all scripts.
+    if [[ "${UWS_DAEMON}" == "^" ]]; then
+        for command in "${UWS_DB_COMMANDS[@]}"; do
+            uws_daemon_wipe "${command}"
+        done
+        exit 0
+    fi
+    # Handle daemon launch error.
+    if [[ "${UWS_DAEMON}" == "!" ]]; then
+        echo "uws: Failed to run as a daemon. The command must be specified."
+        exit 1
+    fi
+fi
+
+for command in "${UWS_DB_COMMANDS[@]}"; do
+    # Does not match, continue.
+    if [[ "${command}" != "${UWS_COMMAND}" ]]; then
+        continue
+    fi
+    # Handle daemon info.
+    if [[ "${UWS_DAEMON}" == "?" ]]; then
+        uws_daemon_info "${UWS_COMMAND}"
+        exit 0
+    fi
+    # Handle daemon wipe.
+    if [[ "${UWS_DAEMON}" == "^" ]]; then
+        uws_daemon_wipe "${UWS_COMMAND}"
+        exit 0
+    fi
+    # Enable exit on error.
+    set -e
+    # Source the environment first.
+    source "${UWS_DIR}/uws" || true
+    # Handle hw* scripts and attachment.
+    if [[ "${UWS_COMMAND}" =~ ^hwa && -n "${UWS_HW}" ]]; then
+        echo "uws: Failed to run. Already attached to ${UWS_HW}."
+        exit 1
+    fi
+    if [[ "${UWS_COMMAND}" =~ ^hw[^al] && -z "${UWS_HW}" ]]; then
+        echo "uws: Failed to run. Not attached to hardware."
+        exit 1
+    fi
+    # Launch the script.
+    if [[ "${UWS_DAEMON}" != "!" ]]; then
+        # Source case.
+        source "${UWS_DIR}/${UWS_COMMAND}"
+    else
+        # Daemon case.
+        UWS_DAEMON_DIR="${UWS_DIR}/.uws/${UWS_COMMAND}/$(date +"%Y-%m-%d-%H-%M-%S-%N")"
+        UWS_DAEMON_LOG="${UWS_DAEMON_DIR}/log.txt"
+        UWS_DAEMON_PID="${UWS_DAEMON_DIR}/pid.txt"
+        mkdir -p "${UWS_DAEMON_DIR}"
+        nohup uws "${UWS_COMMAND}" "$@" 1>"${UWS_DAEMON_LOG}" 2>&1 &
+        disown
+        echo $! > "${UWS_DAEMON_PID}"
+        echo "Log: ${UWS_DAEMON_LOG}"
+        echo "PID: $(cat "${UWS_DAEMON_PID}")"
+    fi
+    exit 0
+done
+
+# No matching command, this is an error.
+echo "uws: Unknown command: ${UWS_COMMAND}"
+exit 1
