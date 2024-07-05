@@ -92,12 +92,14 @@ declare -A UWS_DB_SCRIPTS=(
 # This array is extended with user-defined scripts in the workspace (if any).
 declare -a UWS_DB_COMMANDS=(
     "init"
+    "update"
     "bash-setup"
     "bash-reset"
 )
 # Descriptions associated with the commands.
 declare -A UWS_DB_HELPS=(
     [init]="Initialize a new workspace in an empty directory."
+    [update]="Update script to the latest version."
     [bash-setup]="Setup the bash completion in ~/.bashrc."
     [bash-reset]="Reset the bash completion in ~/.bashrc."
 )
@@ -233,6 +235,24 @@ fi
 if [[ "${UWS_COMMAND}" == "bash-reset" ]]; then
     sed -i '/source "$(which uws)" completion 2>\/dev\/null || true/d' "${HOME}/.bashrc"
     exit 0
+fi
+
+#
+# uws update
+#
+
+# The function is required to make sure that the commands are read and executed at once.
+# The script lines are likely to be shifted after the update. Since bash typically reads
+# and executes scripts part-by-part, the simple implementation might cause weird errors.
+function uws_update
+{
+    set -e
+    curl -o "$(which uws)" https://raw.githubusercontent.com/deohayer/uws/main/uws
+    exit 0
+}
+
+if [[ "${UWS_COMMAND}" == "update" ]]; then
+    uws_update
 fi
 
 #
