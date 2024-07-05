@@ -92,12 +92,14 @@ declare -A UWS_DB_SCRIPTS=(
 # This array is extended with user-defined scripts in the workspace (if any).
 declare -a UWS_DB_COMMANDS=(
     "init"
+    "update"
     "bash-setup"
     "bash-reset"
 )
 # Descriptions associated with the commands.
 declare -A UWS_DB_HELPS=(
     [init]="Initialize a new workspace in an empty directory."
+    [update]="Download the latest version."
     [bash-setup]="Setup the bash completion in ~/.bashrc."
     [bash-reset]="Reset the bash completion in ~/.bashrc."
 )
@@ -233,6 +235,18 @@ fi
 if [[ "${UWS_COMMAND}" == "bash-reset" ]]; then
     sed -i '/source "$(which uws)" completion 2>\/dev\/null || true/d' "${HOME}/.bashrc"
     exit 0
+fi
+
+#
+# uws update
+#
+
+if [[ "${UWS_COMMAND}" == "update" ]]; then
+    # The "exit" commands are placed like this so that:
+    #  * The successfully updated script will not be read further, even a single line.
+    #  * The script exits with non-zero code on failure, "set -e" does not work on compounds.
+    curl -o "$(which uws)" https://raw.githubusercontent.com/deohayer/uws/main/uws && exit 0
+    exit 1
 fi
 
 #
