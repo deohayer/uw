@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 
-UWS_VERSION="0.2.1"
+UWS_VERSION="0.2.2"
 
 ###############################################################################
 # Completion
@@ -314,6 +314,7 @@ UWS_HW=""
     "editor.bracketPairColorization.enabled": false,
     "files.associations": {
         "[hs]w?": "shellscript",
+        "[hs]w??": "shellscript",
         "[hs]w?-*": "shellscript",
         "uws": "shellscript"
     },
