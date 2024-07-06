@@ -12,7 +12,6 @@ function _uws_completion()
     UWS_COMP_WORDS=("${COMP_WORDS[@]:1:$((${#COMP_WORDS[@]} - 2))}")
     for UWS_COMP_WORD in "${UWS_COMP_WORDS[@]}"; do
         if [[ "${UWS_COMP_WORD:0:1}" != "-" && "${UWS_COMP_WORD}" != "?" && "${UWS_COMP_WORD}" != "!" ]]; then
-            COMPREPLY=($(compgen -o default || true))
             return
         fi
     done
@@ -21,7 +20,7 @@ function _uws_completion()
 }
 
 if [[ $1 == "completion" ]]; then
-    complete -F _uws_completion uws
+    complete -o filenames -o bashdefault -o default -F _uws_completion uws
     return
 fi
 
