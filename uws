@@ -415,11 +415,11 @@ for command in "${UWS_DB_COMMANDS[@]}"; do
     source "${UWS_DIR}/uws" || true
     # Handle hw* scripts and attachment.
     if [[ "${UWS_COMMAND}" =~ ^hwa && -n "${UWS_HW}" ]]; then
-        echo "uws: Failed to run. Already attached to ${UWS_HW}."
+        echo "uws: Failed to run ${UWS_COMMAND}. Already attached to ${UWS_HW}."
         exit 1
     fi
     if [[ "${UWS_COMMAND}" =~ ^hw[^al] && -z "${UWS_HW}" ]]; then
-        echo "uws: Failed to run. Not attached to hardware."
+        echo "uws: Failed to run ${UWS_COMMAND}. Not attached to hardware."
         exit 1
     fi
     # Launch the script.
