@@ -282,7 +282,12 @@ UWS_HW=""
 ' > "${UWS_DIR}/uws"
     # Populate .uws (directory).
     mkdir -p "${UWS_DIR}/.uws"
-    printf "*\n!.gitignore\n" > "${UWS_DIR}/.uws/.gitignore"
+    printf \
+'*
+!.gitignore
+!hw*
+!sw*
+' > "${UWS_DIR}/.uws/.gitignore"
     # Populate .git* and README.md.
     touch "${UWS_DIR}/.gitattributes"
     touch "${UWS_DIR}/.gitignore"
@@ -301,8 +306,6 @@ UWS_HW=""
 !uws
 !hw*
 !sw*
-!_hw*
-!_sw*
 ' > "${UWS_DIR}/.gitignore"
     # Populate .vscode
     mkdir -p "${UWS_DIR}/.vscode"
