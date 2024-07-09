@@ -26,44 +26,48 @@ while true; do
     UW_WS="$(dirname "${UW_WS}")"
 done
 
-# Information about the executable.
-UW_BIN="$(basename "${BASH_SOURCE[0]}")"
-UW_DIR="$(dirname "$(realpath "${BASH_SOURCE[0]}")")"
-
 # All commands available to the user and respective short help messages.
 # Split into two to retain the order.
 declare -a UW_CMDS=()
 declare -A UW_HELPS=()
-function _uw_cmd()
+# Local commands, only available in the workspace.
+declare -a UW_CMDS_LOCAL=()
+function _uw_cmd_local()
 {
-    UW_CMDS+=($1)
+    UW_CMDS_LOCAL+=("$1")
     UW_HELPS[$1]="$2"
 }
-# Local commands, only available in the workspace.
-if [[ -n "${UW_WS}" ]]; then
-    _uw_cmd "uwa" "Attach to hardware."
-    _uw_cmd "uwd" "Detach from hardware."
-    _uw_cmd "uwp" "Manage the power state of hardware."
-    _uw_cmd "uwc" "Copy file between the local machine and hardware."
-    _uw_cmd "uws" "Hardware shell."
-    _uw_cmd "uwf" "Fetch software."
-    _uw_cmd "uwb" "Build software."
-    _uw_cmd "uwi" "Install software."
-    _uw_cmd "uwt" "Test software."
-    _uw_cmd "uwx" "Extension commands."
-fi
+_uw_cmd_local "uwa" "Attach to hardware."
+_uw_cmd_local "uwd" "Detach from hardware."
+_uw_cmd_local "uwp" "Manage the power state of hardware."
+_uw_cmd_local "uwc" "Copy file between the local machine and hardware."
+_uw_cmd_local "uws" "Hardware shell."
+_uw_cmd_local "uwf" "Fetch software."
+_uw_cmd_local "uwb" "Build software."
+_uw_cmd_local "uwi" "Install software."
+_uw_cmd_local "uwt" "Test software."
+_uw_cmd_local "uwx" "Extension commands."
 # Global commands, always available.
-_uw_cmd "app-setup" "Modify .bashrc to register uw completion and aliases."
-_uw_cmd "app-reset" "Revert changes to .bashrc."
-_uw_cmd "app-update" "Download the latest version of uw."
-_uw_cmd "init" "Create an empty workspace."
+declare -a UW_CMDS_GLOBAL=()
+function _uw_cmd_global()
+{
+    UW_CMDS_GLOBAL+=("$1")
+    UW_HELPS[$1]="$2"
+}
+_uw_cmd_global "app-setup" "Modify .bashrc to register uw completion and aliases."
+_uw_cmd_global "app-reset" "Revert changes to .bashrc."
+_uw_cmd_global "app-update" "Download the latest version of uw."
+_uw_cmd_global "init" "Create an empty workspace."
+# Populate actually available commands.
+if [[ -n "${UW_WS}" ]]; then
+    UW_CMDS+=("${UW_CMDS_LOCAL[@]}")
+fi
+UW_CMDS+=("${UW_CMDS_GLOBAL[@]}")
 
 # Declare aliases for uw* commands. Ensure that they work even without .bashrc.
 shopt -s expand_aliases
-for i in "${UW_CMDS[@]}"; do
-    if [[ "$i" =~ uw. ]]; then
-        alias "$i"="${UW_BIN} $i"
-    fi
+for i in "${UW_CMDS_LOCAL[@]}"; do
+    alias "$i"="uw $i"
 done
 
 # Consume the completion flag. It is supplied by the completion function _uw().
@@ -90,9 +94,9 @@ Commands:
 "
     # Determine the longest command name for nice formatting.
     width=0
-    for _UW_CMD in "${UW_CMDS[@]}"; do
-        if [[ $(( ${#_UW_CMD} > ${width} )) != "0" ]]; then
-            width=${#_UW_CMD}
+    for i in "${UW_CMDS[@]}"; do
+        if [[ $(( ${#i} > ${width} )) != "0" ]]; then
+            width=${#i}
         fi
     done
     # Print commands.
@@ -114,9 +118,9 @@ Optional arguments:
 function _uw()
 {
     # First argument - case of the direct uw call.
-    if [[ "${COMP_WORDS[0]}" == "${UW_BIN}" && "${COMP_CWORD}" == "1" ]]; then
+    if [[ "${COMP_WORDS[0]}" == "uw" && "${COMP_CWORD}" == "1" ]]; then
         # Options must not be listed unless intended to be used.
-        if [[ "${COMP_WORDS[${COMP_CWORD}]::1}" == "-" ]]; then
+        if [[ "${COMP_WORDS[${COMP_CWORD}]:0:1}" == "-" ]]; then
             # Options.
             COMPREPLY=("-h" "--help" "-v" "--version")
             COMPREPLY=($(compgen -W "-h --help -v --version" -- "${COMP_WORDS[${COMP_CWORD}]}"))
@@ -128,7 +132,7 @@ function _uw()
         fi
     fi
     # Any other argument - case of a command.
-    if [[ "${COMP_WORDS[0]}" == "${UW_BIN}" ]]; then
+    if [[ "${COMP_WORDS[0]}" == "uw" ]]; then
         UW_CMD="${COMP_WORDS[1]}"
     else
         UW_CMD="${COMP_WORDS[0]}"
@@ -174,11 +178,9 @@ fi
 # from .bashrc. It should be handled first, so that the script returns before
 # executing anything that can fail.
 if [[ "${UW_CMD}" == "--bashrc" ]]; then
-    complete -o filenames -o bashdefault -o default -F _uw "${UW_BIN}"
-    for i in "${UW_CMDS[@]}"; do
-        if [[ "$i" =~ uw. ]]; then
-            complete -o filenames -o bashdefault -o default -F _uw "$i"
-        fi
+    complete -o filenames -o bashdefault -o default -F _uw "uw"
+    for i in "${UW_CMDS_LOCAL[@]}"; do
+        complete -o filenames -o bashdefault -o default -F _uw "$i"
     done
     return
 fi
@@ -206,7 +208,7 @@ fi
 #
 
 if [[ "${UW_CMD}" == "app-setup" ]]; then
-    printf '\nsource "$(which '"${UW_BIN}"')" --bashrc 2>/dev/null || true\n' >> "${HOME}/.bashrc"
+    printf '\nsource "$(which '"uw"')" --bashrc 2>/dev/null || true\n' >> "${HOME}/.bashrc"
     exit 0
 fi
 
@@ -216,7 +218,7 @@ fi
 
 if [[ "${UW_CMD}" == "app-reset" ]]; then
     # Extra newlines will not be removed by this.
-    sed -i '/source "$(which '"${UW_BIN}"')" --bashrc 2>\/dev\/null || true/d' "${HOME}/.bashrc"
+    sed -i '/source "$(which '"uw"')" --bashrc 2>\/dev\/null || true/d' "${HOME}/.bashrc"
     exit 0
 fi
 
@@ -230,7 +232,7 @@ fi
 function _uw_update
 {
     set -e
-    curl -o "$(which "${UW_BIN}")" https://raw.githubusercontent.com/deohayer/uw/main/uw
+    curl -o "$(which "uw")" https://raw.githubusercontent.com/deohayer/uw/main/uw
     exit 0
 }
 
@@ -255,7 +257,7 @@ if [[ "${UW_CMD}" == "init" ]]; then
     mkdir -p "${UW_WS}"
     # The directory is not empty.
     if [[ -n "$(ls -A ${UW_WS})" ]]; then
-        echo "uw init: Not an empty directory: ${UW_WS}"
+        echo "uw init: Not an empty directory: ${UW_WS}" >&2
         exit 1
     fi
     # Populate .git* and README.md.
@@ -301,16 +303,13 @@ if [[ "${UW_CMD}" == "init" ]]; then
         # This script is sourced before execution of any uw* script.
         '
     # Populate uw*.sh
-    for i in "${UW_CMDS[@]}"; do
-        if [[ ! "$i" =~ "uw" ]]; then
-            continue
-        fi
+    for i in "${UW_CMDS_LOCAL[@]}"; do
         _uw_file "${UW_WS}/.uw/$i.sh" '
             #!/usr/bin/env bash
             uw_init $# $@ \
             ###############################################################################
 
-            echo "Not implemented."
+            echo "Not implemented." >&2
             exit 1
             '
     done
@@ -345,9 +344,13 @@ function uw_init()
     return
 }
 
-for i in "${UW_CMDS[@]}"; do
+for i in "${UW_CMDS_LOCAL[@]}"; do
     if [[ "$i" != "${UW_CMD}" ]]; then
         continue
+    fi
+    if [[ -z "${UW_WS}" ]]; then
+        echo "uw ${UW_CMD}: Must be run inside a workspace." >&2
+        exit 1
     fi
     source "${UW_WS}/.uw/env.sh"
     source "${UW_WS}/.uw/${UW_CMD}.sh" "$@"
@@ -359,5 +362,5 @@ done
 #
 
 _uw_help
-echo "uw: Unknown command: ${UW_CMD}"
+echo "uw: Unknown command: ${UW_CMD}" >&2
 exit 1
