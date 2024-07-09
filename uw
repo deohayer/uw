@@ -1,0 +1,363 @@
+#!/usr/bin/env bash
+
+###############################################################################
+# Definition
+###############################################################################
+
+# The version has to be updated in a separate commit and tagget.
+UW_VERSION="0.2.2"
+
+# Root directory of the workspace. It is determined by recursively searcing
+# an immediate .uw in the current directory and all its parents. The first
+# directory to cantain .uw is the root. If empty, means the command is run
+# ourside a workspace.
+UW_WS="${PWD}"
+while true; do
+    # Found.
+    if [[ -d "${UW_WS}/.uw" ]]; then
+        break
+    fi
+    # Not found at all, reached the root directory.
+    if [[ "${UW_WS}" == "/" ]]; then
+        UW_WS=""
+        break
+    fi
+    # Not found, check the parent directory.
+    UW_WS="$(dirname "${UW_WS}")"
+done
+
+# Information about the executable.
+UW_BIN="$(basename "${BASH_SOURCE[0]}")"
+UW_DIR="$(dirname "$(realpath "${BASH_SOURCE[0]}")")"
+
+# All commands available to the user and respective short help messages.
+# Split into two to retain the order.
+declare -a UW_CMDS=()
+declare -A UW_HELPS=()
+function _uw_cmd()
+{
+    UW_CMDS+=($1)
+    UW_HELPS[$1]="$2"
+}
+# Local commands, only available in the workspace.
+if [[ -n "${UW_WS}" ]]; then
+    _uw_cmd "uwa" "Attach to hardware."
+    _uw_cmd "uwd" "Detach from hardware."
+    _uw_cmd "uwp" "Manage the power state of hardware."
+    _uw_cmd "uwc" "Copy file between the local machine and hardware."
+    _uw_cmd "uws" "Hardware shell."
+    _uw_cmd "uwf" "Fetch software."
+    _uw_cmd "uwb" "Build software."
+    _uw_cmd "uwi" "Install software."
+    _uw_cmd "uwt" "Test software."
+    _uw_cmd "uwx" "Extension commands."
+fi
+# Global commands, always available.
+_uw_cmd "app-setup" "Modify .bashrc to register uw completion and aliases."
+_uw_cmd "app-reset" "Revert changes to .bashrc."
+_uw_cmd "app-update" "Download the latest version of uw."
+_uw_cmd "init" "Create an empty workspace."
+
+# Declare aliases for uw* commands. Ensure that they work even without .bashrc.
+shopt -s expand_aliases
+for i in "${UW_CMDS[@]}"; do
+    if [[ "$i" =~ uw. ]]; then
+        alias "$i"="${UW_BIN} $i"
+    fi
+done
+
+# Consume the completion flag. It is supplied by the completion function _uw().
+# It instructs commands to print suggestions and abort execution.
+if [[ "$1" == "--complete" ]]; then
+    UW_COMPLETE="$1"
+    shift
+fi
+# Pick the command indiscriminately. It is either a subcommand or a special
+# optional argument that aborts execution.
+UW_CMD="$1"
+shift
+
+# Full help text.
+function _uw_help()
+{
+    # Print header.
+    printf "\
+uw ...
+
+Uniform Workspace version ${UW_VERSION}.
+
+Commands:
+"
+    # Determine the longest command name for nice formatting.
+    width=0
+    for _UW_CMD in "${UW_CMDS[@]}"; do
+        if [[ $(( ${#_UW_CMD} > ${width} )) != "0" ]]; then
+            width=${#_UW_CMD}
+        fi
+    done
+    # Print commands.
+    for i in "${UW_CMDS[@]}"; do
+        printf " * %-${width}s - ${UW_HELPS[$i]}\n" "$i"
+    done
+    # Print arguments.
+    printf '
+Optional arguments:
+  -h/--help       Display the help text and exit.
+  -v/--version    Display the version and exit.
+\n'
+}
+
+###############################################################################
+# Completion
+###############################################################################
+
+function _uw()
+{
+    # First argument - case of the direct uw call.
+    if [[ "${COMP_WORDS[0]}" == "${UW_BIN}" && "${COMP_CWORD}" == "1" ]]; then
+        # Options must not be listed unless intended to be used.
+        if [[ "${COMP_WORDS[${COMP_CWORD}]::1}" == "-" ]]; then
+            # Options.
+            COMPREPLY=("-h" "--help" "-v" "--version")
+            COMPREPLY=($(compgen -W "-h --help -v --version" -- "${COMP_WORDS[${COMP_CWORD}]}"))
+            return
+        else
+            # Commands.
+            COMPREPLY=($(compgen -W "${UW_CMDS[*]}" -- "${COMP_WORDS[${COMP_CWORD}]}"))
+            return
+        fi
+    fi
+    # Any other argument - case of a command.
+    if [[ "${COMP_WORDS[0]}" == "${UW_BIN}" ]]; then
+        UW_CMD="${COMP_WORDS[1]}"
+    else
+        UW_CMD="${COMP_WORDS[0]}"
+    fi
+    # app-* - fallback.
+    if [[ "${UW_CMD}" =~ "app-" ]]; then
+        return
+    fi
+    # init - fallback.
+    if [[ "${UW_CMD}" == "init" ]]; then
+        return
+    fi
+    # uw* - print targets.
+    if [[ "${UW_CMD}" =~ "uw" ]]; then
+        COMPREPLY=($(compgen -W "$(uw --complete "${UW_CMD}" 2>/dev/null || true)" -- "${COMP_WORDS[${COMP_CWORD}]}"))
+        return
+    fi
+}
+
+###############################################################################
+# Execution
+###############################################################################
+
+# Each section handles a single command or a group of similar commands. This
+# part of the script is effectively a huge switch statement. Therefore, each
+# section must call "exit" upon finishing or a command error will be printed.
+
+#
+# Missing command.
+#
+
+if [[ -z "${UW_CMD}" ]]; then
+    _uw_help
+    echo "uw: Command not specified."
+    exit 1
+fi
+
+#
+# uw --bashrc
+#
+
+# "--bashrc" is a hidden option to indicate that the file is being sourced
+# from .bashrc. It should be handled first, so that the script returns before
+# executing anything that can fail.
+if [[ "${UW_CMD}" == "--bashrc" ]]; then
+    complete -o filenames -o bashdefault -o default -F _uw "${UW_BIN}"
+    for i in "${UW_CMDS[@]}"; do
+        if [[ "$i" =~ uw. ]]; then
+            complete -o filenames -o bashdefault -o default -F _uw "$i"
+        fi
+    done
+    return
+fi
+
+#
+# uw --version
+#
+
+if [[ "${UW_CMD}" == "--version" || "${UW_CMD}" == "-v" ]]; then
+    echo "${UW_VERSION}"
+    exit 0
+fi
+
+#
+# uw --help
+#
+
+if [[ "${UW_CMD}" == "--help" || "${UW_CMD}" == "-h" ]]; then
+    _uw_help
+    exit 0
+fi
+
+#
+# uw app-setup
+#
+
+if [[ "${UW_CMD}" == "app-setup" ]]; then
+    printf '\nsource "$(which '"${UW_BIN}"')" --bashrc 2>/dev/null || true\n' >> "${HOME}/.bashrc"
+    exit 0
+fi
+
+#
+# uw app-reset
+#
+
+if [[ "${UW_CMD}" == "app-reset" ]]; then
+    # Extra newlines will not be removed by this.
+    sed -i '/source "$(which '"${UW_BIN}"')" --bashrc 2>\/dev\/null || true/d' "${HOME}/.bashrc"
+    exit 0
+fi
+
+#
+# uw app-update
+#
+
+# The function is required to make sure that the commands are read and executed at once.
+# The script lines are likely to be shifted after the update. Since bash typically reads
+# and executes scripts part-by-part, a simple implementation might cause weird errors.
+function _uw_update
+{
+    set -e
+    curl -o "$(which "${UW_BIN}")" https://raw.githubusercontent.com/deohayer/uw/main/uw
+    exit 0
+}
+
+if [[ "${UW_CMD}" == "app-update" ]]; then
+    _uw_update
+fi
+
+#
+# uw init
+#
+
+function _uw_file()
+{
+    printf "${2:1}" > $1
+    local n=$(( $(sed -n '1s/[^[:space:]].*//; p; q' $1 | wc -c) - 1 ))
+    sed -i 's/^[[:space:]]\{1,'"$n"'\}//' $1
+}
+
+if [[ "${UW_CMD}" == "init" ]]; then
+    # Overwrite UW_WS If not provided, defaults to the current directory.
+    UW_WS="$(realpath "${1:-"${PWD}"}")"
+    mkdir -p "${UW_WS}"
+    # The directory is not empty.
+    if [[ -n "$(ls -A ${UW_WS})" ]]; then
+        echo "uw init: Not an empty directory: ${UW_WS}"
+        exit 1
+    fi
+    # Populate .git* and README.md.
+    touch "${UW_WS}/.gitattributes"
+    touch "${UW_WS}/.gitignore"
+    touch "${UW_WS}/.gitmodules"
+    touch "${UW_WS}/README.md"
+    _uw_file "${UW_WS}/.gitignore" '
+        *
+        !.gitattributes
+        !.gitignore
+        !.gitmodules
+        !.uw
+        !.uw/**
+        !.vscode
+        !.vscode/**
+        !README.md
+        '
+    # Populate .vscode
+    mkdir -p "${UW_WS}/.vscode"
+    _uw_file "${UW_WS}/.vscode/.gitignore" '
+        *
+        !.gitignore
+        !*.json
+        '
+    _uw_file "${UW_WS}/.vscode/settings.json" '
+        {
+            "editor.bracketPairColorization.enabled": false,
+            "files.watcherExclude": {
+                "**": true
+            }
+        }
+        '
+    # Populate .uw.
+    mkdir -p "${UW_WS}/.uw"
+    _uw_file "${UW_WS}/.uw/.gitignore" '
+        *
+        !.gitignore
+        !*.sh
+        '
+    # Populate env.sh
+    _uw_file "${UW_WS}/.uw/env.sh" '
+        # This script is sourced before execution of any uw* script.
+        '
+    # Populate uw*.sh
+    for i in "${UW_CMDS[@]}"; do
+        if [[ ! "$i" =~ "uw" ]]; then
+            continue
+        fi
+        _uw_file "${UW_WS}/.uw/$i.sh" '
+            #!/usr/bin/env bash
+            uw_init $# $@ \
+            ###############################################################################
+
+            echo "Not implemented."
+            exit 1
+            '
+    done
+    # Success.
+    exit 0
+fi
+
+#
+# uw uw*
+#
+
+function uw_init()
+{
+    # Arguments - whatever was passed to the script.
+    declare -a UW_ARGS=("${@:2:$1}")
+    # Targets - a list of possible values for the script arguments.
+    declare -a UW_NAMES=()
+    declare -A UW_HELPS=()
+    for i in $(seq $(($1 + 2)) 2 $#); do
+        local j=$(($i + 1))
+        local name="${!i}"
+        local help="${!j}"
+        UW_NAMES+=("${name}")
+        UW_HELPS[$name]="${help}"
+    done
+    # If it is a completion request - print all targets and exit.
+    if [[ -n "${UW_COMPLETE}" ]]; then
+        printf "%s\n" "${UW_NAMES[@]}"
+        exit 0
+    fi
+    # Not a completion request - continue execution.
+    return
+}
+
+for i in "${UW_CMDS[@]}"; do
+    if [[ "$i" != "${UW_CMD}" ]]; then
+        continue
+    fi
+    source "${UW_WS}/.uw/env.sh"
+    source "${UW_WS}/.uw/${UW_CMD}.sh" "$@"
+    exit 0
+done
+
+#
+# Unknown command.
+#
+
+_uw_help
+echo "uw: Unknown command: ${UW_CMD}"
+exit 1
