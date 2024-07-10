@@ -93,6 +93,13 @@ function _uw_str()
     fi
 }
 
+# Print error and exit.
+function _uw_error()
+{
+    echo "$1" >&2
+    exit 1
+}
+
 ###############################################################################
 # Completion
 ###############################################################################
@@ -147,8 +154,7 @@ function _uw()
 #
 
 if [[ -z "${UW_CMD}" ]]; then
-    echo "uw: Command not specified."
-    exit 1
+    _uw_error "uw: Command not specified."
 fi
 
 #
@@ -255,8 +261,7 @@ if [[ "${UW_CMD}" == "init" ]]; then
     mkdir -p "${UW_WS}"
     # The directory is not empty.
     if [[ -n "$(ls -A ${UW_WS})" ]]; then
-        echo "uw init: Not an empty directory: ${UW_WS}" >&2
-        exit 1
+        _uw_error "uw init: Not an empty directory: ${UW_WS}"
     fi
     # Populate .git* and README.md.
     touch "${UW_WS}/.gitattributes"
@@ -339,8 +344,7 @@ for i in "${UW_CMDS_LOCAL[@]}"; do
         continue
     fi
     if [[ -z "${UW_WS}" ]]; then
-        echo "uw ${UW_CMD}: Must be run inside a workspace." >&2
-        exit 1
+        _uw_error "uw ${UW_CMD}: Must be run inside a workspace."
     fi
     source "${UW_WS}/.uw/env.sh"
     source "${UW_WS}/.uw/${UW_CMD}.sh" "$@"
@@ -351,5 +355,4 @@ done
 # Unknown command.
 #
 
-echo "uw: Unknown command: ${UW_CMD}" >&2
-exit 1
+_uw_error "uw: Unknown command: ${UW_CMD}"
