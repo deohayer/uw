@@ -81,36 +81,6 @@ fi
 UW_CMD="$1"
 shift
 
-# Full help text.
-function _uw_help()
-{
-    # Print header.
-    printf "\
-uw ...
-
-Uniform Workspace version ${UW_VERSION}.
-
-Commands:
-"
-    # Determine the longest command name for nice formatting.
-    width=0
-    for i in "${UW_CMDS[@]}"; do
-        if [[ $(( ${#i} > ${width} )) != "0" ]]; then
-            width=${#i}
-        fi
-    done
-    # Print commands.
-    for i in "${UW_CMDS[@]}"; do
-        printf " * %-${width}s - ${UW_HELPS[$i]}\n" "$i"
-    done
-    # Print arguments.
-    printf '
-Optional arguments:
-  -h/--help       Display the help text and exit.
-  -v/--version    Display the version and exit.
-\n'
-}
-
 # Multiline string with indent removed.
 function _uw_str()
 {
@@ -177,7 +147,6 @@ function _uw()
 #
 
 if [[ -z "${UW_CMD}" ]]; then
-    _uw_help
     echo "uw: Command not specified."
     exit 1
 fi
@@ -211,7 +180,31 @@ fi
 #
 
 if [[ "${UW_CMD}" == "--help" || "${UW_CMD}" == "-h" ]]; then
-    _uw_help
+    # Print header.
+    printf "$(_uw_str "
+        uw ...
+
+        Uniform Workspace version ${UW_VERSION}.
+
+        Commands:
+        ")\n"
+    # Determine the longest command name for nice formatting.
+    width=0
+    for i in "${UW_CMDS[@]}"; do
+        if [[ $(( ${#i} > ${width} )) != "0" ]]; then
+            width=${#i}
+        fi
+    done
+    # Print commands.
+    for i in "${UW_CMDS[@]}"; do
+        printf "  %-${width}s    ${UW_HELPS[$i]}\n" "$i"
+    done
+    # Print optional arguments.
+    printf "$(_uw_str '
+        \nOptional arguments:
+          -h/--help       Display the help text and exit.
+          -v/--version    Display the version and exit.
+        ')\n\n"
     exit 0
 fi
 
@@ -358,6 +351,5 @@ done
 # Unknown command.
 #
 
-_uw_help
 echo "uw: Unknown command: ${UW_CMD}" >&2
 exit 1
