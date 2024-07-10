@@ -111,6 +111,18 @@ Optional arguments:
 \n'
 }
 
+# Multiline string with indent removed.
+function _uw_str()
+{
+    local s="${1:1}"
+    local n=$(( $(sed -n '1s/[^[:space:]].*//; p; q' <(echo -n "$s") | wc -c) - 1 ))
+    if [[ $n != 0 ]]; then
+        sed 's/^[[:space:]]\{1,'"$n"'\}//' <(echo -n "$s")
+    else
+        echo -n "$s"
+    fi
+}
+
 ###############################################################################
 # Completion
 ###############################################################################
@@ -244,13 +256,6 @@ fi
 # uw init
 #
 
-function _uw_file()
-{
-    printf "${2:1}" > $1
-    local n=$(( $(sed -n '1s/[^[:space:]].*//; p; q' $1 | wc -c) - 1 ))
-    sed -i 's/^[[:space:]]\{1,'"$n"'\}//' $1
-}
-
 if [[ "${UW_CMD}" == "init" ]]; then
     # Overwrite UW_WS If not provided, defaults to the current directory.
     UW_WS="$(realpath "${1:-"${PWD}"}")"
@@ -265,7 +270,7 @@ if [[ "${UW_CMD}" == "init" ]]; then
     touch "${UW_WS}/.gitignore"
     touch "${UW_WS}/.gitmodules"
     touch "${UW_WS}/README.md"
-    _uw_file "${UW_WS}/.gitignore" '
+    echo "$(_uw_str '
         *
         !.gitattributes
         !.gitignore
@@ -275,43 +280,43 @@ if [[ "${UW_CMD}" == "init" ]]; then
         !.vscode
         !.vscode/**
         !README.md
-        '
+        ')" > "${UW_WS}/.gitignore"
     # Populate .vscode
     mkdir -p "${UW_WS}/.vscode"
-    _uw_file "${UW_WS}/.vscode/.gitignore" '
+    echo "$(_uw_str '
         *
         !.gitignore
         !*.json
-        '
-    _uw_file "${UW_WS}/.vscode/settings.json" '
+        ')" > "${UW_WS}/.vscode/.gitignore"
+    echo "$(_uw_str '
         {
             "editor.bracketPairColorization.enabled": false,
             "files.watcherExclude": {
                 "**": true
             }
         }
-        '
+        ')" > "${UW_WS}/.vscode/settings.json"
     # Populate .uw.
     mkdir -p "${UW_WS}/.uw"
-    _uw_file "${UW_WS}/.uw/.gitignore" '
+    echo "$(_uw_str '
         *
         !.gitignore
         !*.sh
-        '
+        ')" > "${UW_WS}/.uw/.gitignore"
     # Populate env.sh
-    _uw_file "${UW_WS}/.uw/env.sh" '
+    echo "$(_uw_str '
         # This script is sourced before execution of any uw* script.
-        '
+        ')" > "${UW_WS}/.uw/env.sh"
     # Populate uw*.sh
     for i in "${UW_CMDS_LOCAL[@]}"; do
-        _uw_file "${UW_WS}/.uw/$i.sh" '
+        echo "$(_uw_str '
             #!/usr/bin/env bash
             uw_init "$#" "$@"
             ###############################################################################
 
             echo "Not implemented." >&2
             exit 1
-            '
+            ')" > "${UW_WS}/.uw/$i.sh"
     done
     # Success.
     exit 0
