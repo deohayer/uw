@@ -106,19 +106,36 @@ function _uw_error()
 
 function _uw()
 {
+    local ws="${PWD}"
+    while true; do
+        # Found.
+        if [[ -d "${ws}/.uw" ]]; then
+            break
+        fi
+        # Not found at all, reached the root directory.
+        if [[ "${ws}" == "/" ]]; then
+            ws=""
+            break
+        fi
+        # Not found, check the parent directory.
+        ws="$(dirname "${ws}")"
+    done
+    local cmds=()
+    if [[ -n "${ws}" ]]; then
+        cmds+=("${UW_CMDS_LOCAL[@]}")
+    fi
+    cmds+=("${UW_CMDS_GLOBAL[@]}")
     # First argument - case of the direct uw call.
     if [[ "${COMP_WORDS[0]}" == "uw" && "${COMP_CWORD}" == "1" ]]; then
         # Options must not be listed unless intended to be used.
         if [[ "${COMP_WORDS[${COMP_CWORD}]:0:1}" == "-" ]]; then
             # Options.
-            COMPREPLY=("-h" "--help" "-v" "--version")
             COMPREPLY=($(compgen -W "-h --help -v --version" -- "${COMP_WORDS[${COMP_CWORD}]}"))
-            return
         else
             # Commands.
-            COMPREPLY=($(compgen -W "${UW_CMDS[*]}" -- "${COMP_WORDS[${COMP_CWORD}]}"))
-            return
+            COMPREPLY=($(compgen -W "${cmds[*]}" -- "${COMP_WORDS[${COMP_CWORD}]}"))
         fi
+        return
     fi
     # Any other argument - case of a command.
     if [[ "${COMP_WORDS[0]}" == "uw" ]]; then
@@ -136,7 +153,13 @@ function _uw()
     fi
     # uw* - print targets.
     if [[ "${UW_CMD}" =~ "uw" ]]; then
-        COMPREPLY=($(compgen -W "$(uw --complete "${UW_CMD}" 2>/dev/null || true)" -- "${COMP_WORDS[${COMP_CWORD}]}"))
+        if [[ "${COMP_WORDS[${COMP_CWORD}]:0:1}" == "-" ]]; then
+            # Options.
+            COMPREPLY=($(compgen -W "-h --help -v --version" -- "${COMP_WORDS[${COMP_CWORD}]}"))
+        else
+            # Commands.
+            COMPREPLY=($(compgen -W "$(uw --complete "${UW_CMD}" 2>/dev/null || true)" -- "${COMP_WORDS[${COMP_CWORD}]}"))
+        fi
         return
     fi
 }
@@ -333,6 +356,126 @@ function uw_init()
     # If it is a completion request - print all targets and exit.
     if [[ -n "${UW_COMPLETE}" ]]; then
         printf "%s\n" "${tgts[@]}"
+        exit 0
+    fi
+    # -v/--version
+    if [[ "${args[0]}" == "-v" || "${args[0]}" == "--version" ]]; then
+        echo "${UW_VERSION}"
+        exit 0
+    fi
+    # -h/--help
+    if [[ "${args[0]}" == "-h" || "${args[0]}" == "--help" ]]; then
+        if [[ -z "${tgts[@]}" ]]; then
+            local header="uw ${UW_CMD}"
+        fi
+        # uwa
+        if [[ "${UW_CMD}" == "uwa" ]]; then
+            local header="${header:-"uw uwa TGT"}"
+            printf "$(_uw_str "
+                ${header}
+                ${UW_HELPS[$UW_CMD]}
+                ")\n"
+            if [[ -n "${tgts[*]}" ]]; then
+                printf "$(_uw_str '
+                    \nPositional arguments:
+                      TGT    Target to attach to.
+                    ')\n"
+            fi
+        fi
+        # uwd
+        if [[ "${UW_CMD}" == "uwd" ]]; then
+            local header="${header:-"uw uwd"}"
+            printf "$(_uw_str "
+                ${header}
+                ${UW_HELPS[$UW_CMD]}
+                ")\n"
+        fi
+        # uwp
+        if [[ "${UW_CMD}" == "uwp" ]]; then
+            local header="${header:-"uw uwp STATE"}"
+            printf "$(_uw_str "
+                ${header}
+
+                ${UW_HELPS[$UW_CMD]}
+                ")\n"
+            if [[ -n "${tgts[*]}" ]]; then
+                printf "$(_uw_str '
+                    \nPositional arguments:
+                      STATE    Power state to set.
+                    ')\n"
+            fi
+        fi
+        # uwc
+        if [[ "${UW_CMD}" == "uwc" ]]; then
+            local header="${header:-"uw uwc TGT"}"
+            printf "$(_uw_str "
+                ${header} SRC DST
+
+                ${UW_HELPS[$UW_CMD]}
+
+                Positional arguments:
+                  SRC    Source path.
+                  DST    Destination path.
+                ")\n"
+            if [[ -n "${tgts[*]}" ]]; then
+                printf "  TGT    Target for file transfer.\n"
+            fi
+        fi
+        # uws
+        if [[ "${UW_CMD}" == "uws" ]]; then
+            local header="${header:-"uw uws TGT"}"
+            printf "$(_uw_str "
+                ${header} [CMD...]
+
+                ${UW_HELPS[$UW_CMD]}
+
+                Positional arguments:
+                  CMD    A command to execute. If empty - start an interactive session.
+                ")\n"
+            if [[ -n "${tgts[*]}" ]]; then
+                printf "  TGT    Target for shell.\n"
+            fi
+        fi
+        # uwf, uwb, uwi, uwt
+        if [[ "${UW_CMD}" == "uwf" || "${UW_CMD}" == "uwb" || "${UW_CMD}" == "uwi" || "${UW_CMD}" == "uwt" ]]; then
+            local header="${header:-"uw ${UW_CMD} [TGT...]"}"
+            printf "$(_uw_str "
+                ${header}
+
+                ${UW_HELPS[$UW_CMD]}
+                ")\n"
+            if [[ -n "${tgts[*]}" ]]; then
+                printf "$(_uw_str '
+                    \nPositional arguments:
+                      TGT    Targets for the operation.
+                    ')\n"
+            fi
+        fi
+        # "uwx" "Extension commands."
+        if [[ "${UW_CMD}" == "uwx" ]]; then
+            local header="${header:-"uw ${UW_CMD} [ARG...]"}"
+            printf "$(_uw_str "
+                ${header}
+
+                ${UW_HELPS[$UW_CMD]}
+                ")\n"
+            if [[ -n "${tgts[*]}" ]]; then
+                printf "$(_uw_str '
+                    \nPositional arguments:
+                      ARG    Subcommand and/or arguments.
+                    ')\n"
+            fi
+        fi
+        # Print targets, if any.
+        for i in "${tgts[@]}"; do
+            printf "          * $i\n"
+        done
+        # Print optional arguments.
+        printf "$(_uw_str '
+            \nOptional arguments:
+              -h/--help       Display the help text and exit.
+              -v/--version    Display the version and exit.
+            ')\n\n"
         exit 0
     fi
     # Not a completion request - continue execution.
