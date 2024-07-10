@@ -5,7 +5,7 @@
 ###############################################################################
 
 # The version has to be updated in a separate commit and tagget.
-UW_VERSION="0.4.0"
+UW_VERSION="0.5.0"
 
 # Root directory of the workspace. It is determined by recursively searcing
 # an immediate .uw in the current directory and all its parents. The first
