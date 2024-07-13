@@ -322,13 +322,20 @@ function uw_setup()
     fi
     # uw <cmd> --help
     if [[ "${uw_argv[0]}" == "--help" ]]; then
-        # The help text for any command must not have argument names that
-        # exceed three letters. This is to have a consistent offset for
-        # printing uw_tgts and not calcualte it dynamically.
-        # Also, each command must define the following:
-        declare uw_usage=""     # A usage string for the help text.
-        declare -a uw_args=()   # Positional arguments.
-        declare -A uw_helps=()  # Help texts for the positional arguments.
+        # Any command must not have positional argument names that exceed three
+        # letters. This is to have a consistent offset for printing uw_tgts and
+        # not calcualte it dynamically.
+        # Each command must define the following:
+        declare uw_usage=""      # A usage string for the help text.
+        declare -a uw_argsp=()   # Positional arguments.
+        declare -a uw_argso=(    # Optional arguments.
+            "--help"
+            "--version"
+        )
+        declare -A uw_helps=(    # Help texts for the positional arguments.
+            [--help]="${_uw_cli_helps[--help]}"
+            [--version]="${_uw_cli_helps[--version]}"
+        )
         # app-*
         if false \
             || [[ "$_uw_cli_command" == "app-update" ]] \
@@ -340,13 +347,13 @@ function uw_setup()
         # init
         if [[ "$_uw_cli_command" == "init" ]]; then
             uw_usage="uw $_uw_cli_command [DIR]"
-            uw_args+=("DIR")
+            uw_argsp+=("DIR")
             uw_helps+=([DIR]="A directory to initialize, defaults to PWD.")
         fi
         # uwa
         if [[ "$_uw_cli_command" == "uwa" ]]; then
             uw_usage="uw $_uw_cli_command [TGT]"
-            uw_args+=("TGT")
+            uw_argsp+=("TGT")
             uw_helps+=([TGT]="A target to attach to.")
         fi
         # uwd
@@ -356,25 +363,25 @@ function uw_setup()
         # uwp
         if [[ "$_uw_cli_command" == "uwp" ]]; then
             uw_usage="uw $_uw_cli_command [TGT]"
-            uw_args+=("TGT")
+            uw_argsp+=("TGT")
             uw_helps+=([TGT]="A power state to set.")
         fi
         # uwc
         if [[ "$_uw_cli_command" == "uwc" ]]; then
             uw_usage="uw $_uw_cli_command [TGT:]SRC [TGT:]DST"
-            uw_args+=("SRC")
+            uw_argsp+=("SRC")
+            uw_argsp+=("DST")
+            uw_argsp+=("TGT")
             uw_helps+=([SRC]="Source path.")
-            uw_args+=("DST")
             uw_helps+=([DST]="Destination path.")
-            uw_args+=("TGT")
             uw_helps+=([TGT]="A target for file transfer.")
         fi
         # uws
         if [[ "$_uw_cli_command" == "uws" ]]; then
             uw_usage="uw $_uw_cli_command [TGT] [CMD...]"
-            uw_args+=("CMD")
+            uw_argsp+=("CMD")
+            uw_argsp+=("TGT")
             uw_helps+=([CMD]="A command to execute. If empty - start an interactive session.")
-            uw_args+=("TGT")
             uw_helps+=([TGT]="A target for shell.")
         fi
         # uwf, uwb, uwi, uwt, uwx.
@@ -386,7 +393,7 @@ function uw_setup()
             || [[ "$_uw_cli_command" == "uwx" ]] \
             ; then
             uw_usage="uw $_uw_cli_command [TGT...]"
-            uw_args+=("TGT")
+            uw_argsp+=("TGT")
             uw_helps+=([TGT]="Targets for the operation.")
         fi
         # Print usage.
@@ -394,23 +401,15 @@ function uw_setup()
         # Print description.
         printf "\n${_uw_cli_helps[$_uw_cli_command]}\n"
         # Print positional arguments.
-        if [[ -n "${uw_args[*]}" ]]; then
-            printf "\nPositional arguments:\n"
-            for uw_arg in "${uw_args[@]}"; do
-                printf "  $uw_arg    ${uw_helps[$uw_arg]}\n"
-            done
+        if [[ -n "${uw_argsp[*]}" ]]; then
+            _uw_print_args "Positional arguments" "uw_argsp" "uw_helps"
             # Print the suggested values for TGT with a proper offset.
             for uw_tgt in "${uw_tgts[@]}"; do
                 printf "          * $uw_tgt\n"
             done
         fi
         # Print optional arguments.
-        printf "%s\n" \
-            "" \
-            "Optional arguments:" \
-            "  --help       ${uw_helps[--help]}" \
-            "  --version    ${uw_helps[--version]}" \
-            ""
+        _uw_print_args "Optional arguments" "uw_argso" "uw_helps"
         exit 0
     fi
     # Normal execution - continue.
