@@ -320,10 +320,12 @@ function uw_setup()
     declare -a uw_argso=(    # Optional arguments.
         "--help"
         "--version"
+        "--daemon"
     )
     declare -A uw_helps=(    # Help texts for the arguments.
         [--help]="${_uw_cli_helps[--help]}"
         [--version]="${_uw_cli_helps[--version]}"
+        [--daemon]="Launch in background."
     )
     # app-*
     if false \
@@ -338,6 +340,11 @@ function uw_setup()
         uw_usage="uw $_uw_cli_command [DIR]"
         uw_argsp+=("DIR")
         uw_helps+=([DIR]="A directory to initialize, defaults to PWD.")
+    fi
+    # uw*
+    if [[ "$_uw_cli_command" =~ ^uw.$ ]]; then
+        uw_argso+=("--daemon")
+        uw_helps+=([--daemon]="Launch in background.")
     fi
     # uwa
     if [[ "$_uw_cli_command" == "uwa" ]]; then
@@ -412,6 +419,20 @@ function uw_setup()
         fi
         # Print optional arguments.
         _uw_print_args "Optional arguments" "uw_argso" "uw_helps"
+        exit 0
+    fi
+    # uw uw* --daemon [...]
+    if [[ "${uw_argv[0]}" == "--daemon" && "$_uw_cli_command" =~ ^uw.$ ]]; then
+        # Daemon case.
+        declare -r daemon_dir="$uw_root/.uw/$_uw_cli_command/$(date +"%Y-%m-%d-%H-%M-%S-%N")"
+        declare -r daemon_log="$daemon_dir/log.txt"
+        declare -r daemon_pid="$daemon_dir/pid.txt"
+        mkdir -p "$daemon_dir"
+        nohup uw "$_uw_cli_command" "${uw_argv[@]:1}" 1>"$daemon_log" 2>&1 &
+        disown
+        echo $! > "$daemon_pid"
+        echo "Log: $daemon_log"
+        echo "PID: $(cat "$daemon_pid")"
         exit 0
     fi
     # Normal execution - continue.
