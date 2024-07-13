@@ -230,24 +230,26 @@ fi
 # Print an argument section.
 #
 # Parameters:
-#  * title - the section title, the first argument.
-#  * names - a list of arguments.
+#  * title - the section title, the first argument ($1).
+#  * names - a reference to a list of arguments ($2).
+#  * helps - a reference to a list of helps for the arguments ($3).
 function _uw_print_args()
 {
     # Parse arguments.
     declare -r title="$1"
-    declare -r names=("${@:2}")
+    declare -n names="$2"
+    declare -n helps="$3"
     # Determine the longest argument name.
-    declare _uw_length=0
+    declare length=0
     for i in "${names[@]}"; do
-        if (( ${#i} > $_uw_length )); then
-            _uw_length=${#i}
+        if (( ${#i} > $length )); then
+            length=${#i}
         fi
     done
     # Print the section.
     printf "\n$title:\n"
     for i in "${names[@]}"; do
-        printf "  %-${_uw_length}s    ${_uw_cli_helps[$i]}\n" "$i"
+        printf "  %-${length}s    ${helps[$i]}\n" "$i"
     done
 }
 
@@ -264,9 +266,9 @@ if [[ -n "$_uw_cli_option_help" ]]; then
     fi
     _uw_cli_commands+=("${_uw_cli_globals[@]}")
     # Print the commands.
-    _uw_print_args "Commands" "${_uw_cli_commands[@]}"
+    _uw_print_args "Commands" "_uw_cli_commands" "_uw_cli_helps"
     # Print optional arguments.
-    _uw_print_args "Optional arguments" "${_uw_cli_options[@]}"
+    _uw_print_args "Optional arguments" "_uw_cli_options" "_uw_cli_helps"
     echo
     exit 0
 fi
