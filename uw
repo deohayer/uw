@@ -1,197 +1,216 @@
 #!/usr/bin/env bash
 
+# Definitions are scattered, so that they are defined only if needed.
+# Some identifiers are available to the user:
+#  * uw_fatal - function to print an error message and exit.
+#  * uw_setup - function to handle command completion and options.
+#  * uw_root  - the workspace root, a directory that contains .uw.
+
+# Program version, always updated in a separate tagged commit.
+declare -r _uw_version="0.5.0"
+
 ###############################################################################
-# Definition
+# CLI definitions
 ###############################################################################
 
-# The version has to be updated in a separate commit and tagget.
-UW_VERSION="0.5.0"
+# Commands that can only be run in a workspace.
+declare -ra _uw_cli_scripts=(
+    "uwa"
+    "uwd"
+    "uwp"
+    "uwc"
+    "uws"
+    "uwf"
+    "uwb"
+    "uwi"
+    "uwt"
+    "uwx"
+)
+# Commands that can be run everywhere.
+declare -ra _uw_cli_globals=(
+    "app-update"
+    "app-setup"
+    "app-reset"
+    "init"
+)
+# Options - each has a separate _uw_opt_* variable.
+declare -ra _uw_cli_options=(
+    "--bashrc"
+    "--version"
+    "--help"
+)
+# Short descriptions for the commands.
+declare -rA _uw_cli_helps=(
+    [uwa]="Attach to the hardware."
+    [uwd]="Detach from the hardware."
+    [uwp]="Manage the power state of the hardware."
+    [uwc]="Copy file between the local machine and the hardware."
+    [uws]="The hardware shell."
+    [uwf]="Fetch the software."
+    [uwb]="Build the software."
+    [uwi]="Install the software."
+    [uwt]="Test the software."
+    [uwx]="Extensions - custom actions."
+    [app-update]="Download the latest version."
+    [app-setup]="Modify .bashrc to register uw completion and aliases."
+    [app-reset]="Revert changes to .bashrc made by app-setup."
+    [init]="Create an empty workspace."
+    [--bashrc]="Setup completion and aliases, then exit."
+    [--help]="Print the help text, then exit."
+    [--version]="Print the version, then exit."
+)
 
-# Root directory of the workspace. It is determined by recursively searcing
-# an immediate .uw in the current directory and all its parents. The first
-# directory to cantain .uw is the root. If empty, means the command is run
-# ourside a workspace.
-UW_WS="${PWD}"
-while true; do
-    # Found.
-    if [[ -d "${UW_WS}/.uw" ]]; then
-        break
-    fi
-    # Not found at all, reached the root directory.
-    if [[ "${UW_WS}" == "/" ]]; then
-        UW_WS=""
-        break
-    fi
-    # Not found, check the parent directory.
-    UW_WS="$(dirname "${UW_WS}")"
-done
-
-# All commands available to the user and respective short help messages.
-# Split into two to retain the order.
-declare -a UW_CMDS=()
-declare -A UW_HELPS=()
-# Local commands, only available in the workspace.
-declare -a UW_CMDS_LOCAL=()
-function _uw_cmd_local()
-{
-    UW_CMDS_LOCAL+=("$1")
-    UW_HELPS[$1]="$2"
-}
-_uw_cmd_local "uwa" "Attach to hardware."
-_uw_cmd_local "uwd" "Detach from hardware."
-_uw_cmd_local "uwp" "Manage the power state of hardware."
-_uw_cmd_local "uwc" "Copy file between the local machine and hardware."
-_uw_cmd_local "uws" "Hardware shell."
-_uw_cmd_local "uwf" "Fetch software."
-_uw_cmd_local "uwb" "Build software."
-_uw_cmd_local "uwi" "Install software."
-_uw_cmd_local "uwt" "Test software."
-_uw_cmd_local "uwx" "Extension commands."
-# Global commands, always available.
-declare -a UW_CMDS_GLOBAL=()
-function _uw_cmd_global()
-{
-    UW_CMDS_GLOBAL+=("$1")
-    UW_HELPS[$1]="$2"
-}
-_uw_cmd_global "app-setup" "Modify .bashrc to register uw completion and aliases."
-_uw_cmd_global "app-reset" "Revert changes to .bashrc."
-_uw_cmd_global "app-update" "Download the latest version of uw."
-_uw_cmd_global "init" "Create an empty workspace."
-# Populate actually available commands.
-if [[ -n "${UW_WS}" ]]; then
-    UW_CMDS+=("${UW_CMDS_LOCAL[@]}")
-fi
-UW_CMDS+=("${UW_CMDS_GLOBAL[@]}")
-
-# Declare aliases for uw* commands. Ensure that they work even without .bashrc.
+# Declare aliases for the scripts. They can be called outside a workspace.
 shopt -s expand_aliases
-for i in "${UW_CMDS_LOCAL[@]}"; do
+for i in "${_uw_cli_scripts[@]}"; do
     alias "$i"="uw $i"
 done
 
-# Consume the completion flag. It is supplied by the completion function _uw().
-# It instructs commands to print suggestions and abort execution.
-if [[ "$1" == "--complete" ]]; then
-    UW_COMPLETE="$1"
+# A command to execute.
+declare _uw_cli_command=""
+# Option: show help.
+declare _uw_cli_option_help=""
+# Option: setup completion and aliases.
+declare _uw_cli_option_bashrc=""
+# Option: show version.
+declare _uw_cli_option_version=""
+# Option: perform completion instead of execution (hidden).
+declare _uw_cli_option_complete=""
+
+for i in "$@"; do
+    if [[ "$i" == "--help" ]]; then
+        _uw_cli_option_help="$i"
+        shift
+        continue
+    fi
+    if [[ "$i" == "--bashrc" ]]; then
+        _uw_cli_option_bashrc="$i"
+        shift
+        continue
+    fi
+    if [[ "$i" == "--version" ]]; then
+        _uw_cli_option_version="$i"
+        shift
+        continue
+    fi
+    if [[ "$i" == "--complete" ]]; then
+        _uw_cli_option_complete="$i"
+        shift
+        continue
+    fi
+    _uw_cli_command="$i"
     shift
-fi
-# Pick the command indiscriminately. It is either a subcommand or a special
-# optional argument that aborts execution.
-UW_CMD="$1"
-shift
-
-# Multiline string with indent removed.
-function _uw_str()
-{
-    local s="${1:1}"
-    local n=$(( $(sed -n '1s/[^[:space:]].*//; p; q' <(echo -n "$s") | wc -c) - 1 ))
-    if [[ $n != 0 ]]; then
-        sed 's/^[[:space:]]\{1,'"$n"'\}//' <(echo -n "$s")
-    else
-        echo -n "$s"
-    fi
-}
-
-# Print error and exit.
-function _uw_error()
-{
-    echo "$1" >&2
-    exit 1
-}
+    break
+done
 
 ###############################################################################
-# Completion
+# Option handling
 ###############################################################################
 
-function _uw()
-{
-    local ws="${PWD}"
-    while true; do
-        # Found.
-        if [[ -d "${ws}/.uw" ]]; then
-            break
-        fi
-        # Not found at all, reached the root directory.
-        if [[ "${ws}" == "/" ]]; then
-            ws=""
-            break
-        fi
-        # Not found, check the parent directory.
-        ws="$(dirname "${ws}")"
-    done
-    local cmds=()
-    if [[ -n "${ws}" ]]; then
-        cmds+=("${UW_CMDS_LOCAL[@]}")
-    fi
-    cmds+=("${UW_CMDS_GLOBAL[@]}")
-    # First argument - case of the direct uw call.
-    if [[ "${COMP_WORDS[0]}" == "uw" && "${COMP_CWORD}" == "1" ]]; then
-        # Options must not be listed unless intended to be used.
-        if [[ "${COMP_WORDS[${COMP_CWORD}]:0:1}" == "-" ]]; then
-            # Options.
-            COMPREPLY=($(compgen -W "-h --help -v --version" -- "${COMP_WORDS[${COMP_CWORD}]}"))
-        else
-            # Commands.
-            COMPREPLY=($(compgen -W "${cmds[*]}" -- "${COMP_WORDS[${COMP_CWORD}]}"))
-        fi
-        return
-    fi
-    # Any other argument - case of a command.
-    if [[ "${COMP_WORDS[0]}" == "uw" ]]; then
-        UW_CMD="${COMP_WORDS[1]}"
-    else
-        UW_CMD="${COMP_WORDS[0]}"
-    fi
-    # app-* - fallback.
-    if [[ "${UW_CMD}" =~ "app-" ]]; then
-        return
-    fi
-    # init - fallback.
-    if [[ "${UW_CMD}" == "init" ]]; then
-        return
-    fi
-    # uw* - print targets.
-    if [[ "${UW_CMD}" =~ "uw" ]]; then
-        if [[ "${COMP_WORDS[${COMP_CWORD}]:0:1}" == "-" ]]; then
-            # Options.
-            COMPREPLY=($(compgen -W "-h --help -v --version" -- "${COMP_WORDS[${COMP_CWORD}]}"))
-        else
-            # Commands.
-            COMPREPLY=($(compgen -W "$(uw --complete "${UW_CMD}" 2>/dev/null || true)" -- "${COMP_WORDS[${COMP_CWORD}]}"))
-        fi
-        return
-    fi
-}
-
-###############################################################################
-# Execution
-###############################################################################
-
-# Each section handles a single command or a group of similar commands. This
-# part of the script is effectively a huge switch statement. Therefore, each
-# section must call "exit" upon finishing or a command error will be printed.
-
-#
-# Missing command.
-#
-
-if [[ -z "${UW_CMD}" ]]; then
-    _uw_error "uw: Command not specified."
-fi
+# This section handles options that do not require a command:
+#  * --bashrc
+#  * --version
+#  * --help
 
 #
 # uw --bashrc
 #
 
-# "--bashrc" is a hidden option to indicate that the file is being sourced
-# from .bashrc. It should be handled first, so that the script returns before
-# executing anything that can fail.
-if [[ "${UW_CMD}" == "--bashrc" ]]; then
-    complete -o filenames -o bashdefault -o default -F _uw "uw"
-    for i in "${UW_CMDS_LOCAL[@]}"; do
-        complete -o filenames -o bashdefault -o default -F _uw "$i"
+# Determine the workspace root.
+function _uw_root()
+{
+    # Search recursively backwards, starting from the current directory.
+    declare uw_root="$PWD"
+    while true; do
+        # Found.
+        if [[ -d "$uw_root/.uw" ]]; then
+            break
+        fi
+        # Not found up to the root directory.
+        if [[ "$uw_root" == "/" ]]; then
+            uw_root=""
+            break
+        fi
+        # Not found, recurse into the parent directory.
+        uw_root="$(dirname "$uw_root")"
     done
+    echo "$uw_root"
+}
+
+function _uw_completion()
+{
+    # Redeclare _uw_cli_command as local, parse it from COMP_WORDS.
+    declare _uw_cli_command=""
+    if [[ "${COMP_WORDS[0]}" != "uw" ]]; then
+        # Case of a uw* alias.
+        _uw_cli_command="${COMP_WORDS[0]}"
+    else
+        # Case of the uw application.
+        for i in "${!COMP_WORDS[@]}"; do
+            # Filter out uw itself and its options.
+            if false \
+                || (( $i == 0 )) \
+                || [[ "${COMP_WORDS[$i]}" == "--help" ]] \
+                || [[ "${COMP_WORDS[$i]}" == "--bashrc" ]] \
+                || [[ "${COMP_WORDS[$i]}" == "--version" ]] \
+                || [[ "${COMP_WORDS[$i]}" == "--complete" ]] \
+                ; then
+                continue
+            fi
+            # The first non-special word is the command (command completion).
+            # Skip if it is the word to complete (application completion).
+            if (( $i != $COMP_CWORD )); then
+                _uw_cli_command="${COMP_WORDS[$i]}"
+            fi
+            break
+        done
+    fi
+    # All completion suggestions as a single string.
+    declare compwords=""
+    if [[ -n "$_uw_cli_command" ]]; then
+        # The command completion.
+        # Set COMPREPLY words for options or targets (arguments).
+        if [[ "${COMP_WORDS[$COMP_CWORD]:0:1}" == "-" ]]; then
+            compwords="--help --version"
+        else
+            compwords="$(uw --complete "$_uw_cli_command" 2>/dev/null || true)"
+        fi
+    else
+        # The application completion.
+        # Dynamically determine the workspace root.
+        declare -r uw_root="$(_uw_root)"
+        # Populate the available commands.
+        declare -a _uw_cli_commands=()
+        if [[ -n "$uw_root" ]]; then
+            _uw_cli_commands+=("${_uw_cli_scripts[@]}")
+        fi
+        _uw_cli_commands+=("${_uw_cli_globals[@]}")
+        # Set COMPREPLY words for options or commands.
+        if [[ "${COMP_WORDS[$COMP_CWORD]:0:1}" == "-" ]]; then
+            compwords="${_uw_cli_options[*]}"
+        else
+            compwords="${_uw_cli_commands[*]}"
+        fi
+    fi
+    # Generate actual completions.
+    COMPREPLY=($(compgen -W "$compwords" -- "${COMP_WORDS[$COMP_CWORD]}"))
+}
+
+# It should be handled first, so that the script returns before polluting the
+# namespace with more identifiers.
+if [[ -n "$_uw_cli_option_bashrc" ]]; then
+    complete -o filenames -o bashdefault -o default -F _uw_completion uw
+    for i in "${_uw_cli_scripts[@]}"; do
+        complete -o filenames -o bashdefault -o default -F _uw_completion "$i"
+    done
+    # Cleanup, since whatever is defined stays permanently.
+    unset _uw_version
+    unset _uw_cli_command
+    unset _uw_cli_option_help
+    unset _uw_cli_option_bashrc
+    unset _uw_cli_option_version
+    unset _uw_cli_option_complete
+    unset _uw_arg
     return
 fi
 
@@ -199,8 +218,8 @@ fi
 # uw --version
 #
 
-if [[ "${UW_CMD}" == "--version" || "${UW_CMD}" == "-v" ]]; then
-    echo "${UW_VERSION}"
+if [[ -n "$_uw_cli_option_version" ]]; then
+    echo "$_uw_version"
     exit 0
 fi
 
@@ -208,52 +227,200 @@ fi
 # uw --help
 #
 
-if [[ "${UW_CMD}" == "--help" || "${UW_CMD}" == "-h" ]]; then
-    # Print header.
-    printf "$(_uw_str "
-        uw ...
-
-        Uniform Workspace version ${UW_VERSION}.
-
-        Commands:
-        ")\n"
-    # Determine the longest command name for nice formatting.
-    width=0
-    for i in "${UW_CMDS[@]}"; do
-        if [[ $(( ${#i} > ${width} )) != "0" ]]; then
-            width=${#i}
+# Print an argument section.
+#
+# Parameters:
+#  * title - the section title, the first argument.
+#  * names - a list of arguments.
+function _uw_print_args()
+{
+    # Parse arguments.
+    declare -r title="$1"
+    declare -r names=("${@:2}")
+    # Determine the longest argument name.
+    declare _uw_length=0
+    for i in "${names[@]}"; do
+        if (( ${#i} > $_uw_length )); then
+            _uw_length=${#i}
         fi
     done
-    # Print commands.
-    for i in "${UW_CMDS[@]}"; do
-        printf "  %-${width}s    ${UW_HELPS[$i]}\n" "$i"
+    # Print the section.
+    printf "\n$title:\n"
+    for i in "${names[@]}"; do
+        printf "  %-${_uw_length}s    ${_uw_cli_helps[$i]}\n" "$i"
     done
+}
+
+if [[ -n "$_uw_cli_option_help" ]]; then
+    # Print the header.
+    printf "%s\n" \
+        "uw ..." \
+        "" \
+        "Uniform Workspace version $_uw_version."
+    # Populate the available commands.
+    declare -a _uw_cli_commands=()
+    if [[ -n "$uw_root" ]]; then
+        _uw_cli_commands+=("${_uw_cli_scripts[@]}")
+    fi
+    _uw_cli_commands+=("${_uw_cli_globals[@]}")
+    # Print the commands.
+    _uw_print_args "Commands" "${_uw_cli_commands[@]}"
     # Print optional arguments.
-    printf "$(_uw_str '
-        \nOptional arguments:
-          -h/--help       Display the help text and exit.
-          -v/--version    Display the version and exit.
-        ')\n\n"
+    _uw_print_args "Optional arguments" "${_uw_cli_options[@]}"
+    echo
     exit 0
 fi
 
+###############################################################################
+# Command handling
+###############################################################################
+
+# Print an error message and exit. Also available to the user.
 #
-# uw app-setup
+# Parameters:
+#  * 1 - the message.
+#  * 2 - the exit code, defaults to 1.
+function uw_fatal()
+{
+    echo "$1" >&2
+    declare -r code=${2:-1}
+    exit $code
+}
+
+# Handle the following options per command:
+#  * --help
+#  * --version
+#  * --complete (the global one)
+# This function should be called at the start of each command execution.
+# Generated uw*.sh scripts already include the call. The user is supposed to
+# extend it by providing a list of suggested values for the TGT argument.
+#
+# Parameters:
+#  * uw_argc - a number of arguments passed to the command.
+#  * uw_argv - the next uw_argc values, arguments passed to the command.
+#  * uw_tgts - suggested values for the TGT argument, if applicable.
+function uw_setup()
+{
+    set -e
+    # The number of arguments.
+    declare -r uw_argc=$1
+    # The arguments.
+    declare -r uw_argv=("${@:2:$uw_argc}")
+    # The targets - a list of possible values for the TGT argument.
+    declare -r uw_tgts=("${@:$(($uw_argc + 2))}")
+    # uw --complete <cmd>
+    if [[ -n "$_uw_cli_option_complete" ]]; then
+        printf "%s\n" "${uw_tgts[@]}"
+        exit 0
+    fi
+    # uw <cmd> --version
+    if [[ "${uw_argv[0]}" == "--version" ]]; then
+        echo "$_uw_version"
+        exit 0
+    fi
+    # uw <cmd> --help
+    if [[ "${uw_argv[0]}" == "--help" ]]; then
+        # The help text for any command must not have argument names that
+        # exceed three letters. This is to have a consistent offset for
+        # printing uw_tgts and not calcualte it dynamically.
+        # Also, each command must define the following:
+        declare uw_usage=""     # A usage string for the help text.
+        declare -a uw_args=()   # Positional arguments.
+        declare -A uw_helps=()  # Help texts for the positional arguments.
+        # app-*
+        if false \
+            || [[ "$_uw_cli_command" == "app-update" ]] \
+            || [[ "$_uw_cli_command" == "app-reset" ]] \
+            || [[ "$_uw_cli_command" == "app-setup" ]] \
+            ; then
+            uw_usage="uw $_uw_cli_command"
+        fi
+        # init
+        if [[ "$_uw_cli_command" == "init" ]]; then
+            uw_usage="uw $_uw_cli_command [DIR]"
+            uw_args+=("DIR")
+            uw_helps+=([DIR]="A directory to initialize, defaults to PWD.")
+        fi
+        # uwa
+        if [[ "$_uw_cli_command" == "uwa" ]]; then
+            uw_usage="uw $_uw_cli_command [TGT]"
+            uw_args+=("TGT")
+            uw_helps+=([TGT]="A target to attach to.")
+        fi
+        # uwd
+        if [[ "$_uw_cli_command" == "uwd" ]]; then
+            uw_usage="uw $_uw_cli_command"
+        fi
+        # uwp
+        if [[ "$_uw_cli_command" == "uwp" ]]; then
+            uw_usage="uw $_uw_cli_command [TGT]"
+            uw_args+=("TGT")
+            uw_helps+=([TGT]="A power state to set.")
+        fi
+        # uwc
+        if [[ "$_uw_cli_command" == "uwc" ]]; then
+            uw_usage="uw $_uw_cli_command [TGT:]SRC [TGT:]DST"
+            uw_args+=("SRC")
+            uw_helps+=([SRC]="Source path.")
+            uw_args+=("DST")
+            uw_helps+=([DST]="Destination path.")
+            uw_args+=("TGT")
+            uw_helps+=([TGT]="A target for file transfer.")
+        fi
+        # uws
+        if [[ "$_uw_cli_command" == "uws" ]]; then
+            uw_usage="uw $_uw_cli_command [TGT] [CMD...]"
+            uw_args+=("CMD")
+            uw_helps+=([CMD]="A command to execute. If empty - start an interactive session.")
+            uw_args+=("TGT")
+            uw_helps+=([TGT]="A target for shell.")
+        fi
+        # uwf, uwb, uwi, uwt, uwx.
+        if false \
+            || [[ "$_uw_cli_command" == "uwf" ]] \
+            || [[ "$_uw_cli_command" == "uwb" ]] \
+            || [[ "$_uw_cli_command" == "uwi" ]] \
+            || [[ "$_uw_cli_command" == "uwt" ]] \
+            || [[ "$_uw_cli_command" == "uwx" ]] \
+            ; then
+            uw_usage="uw $_uw_cli_command [TGT...]"
+            uw_args+=("TGT")
+            uw_helps+=([TGT]="Targets for the operation.")
+        fi
+        # Print usage.
+        printf "$uw_usage\n"
+        # Print description.
+        printf "\n${_uw_cli_helps[$_uw_cli_command]}\n"
+        # Print positional arguments.
+        if [[ -n "${uw_args[*]}" ]]; then
+            printf "\nPositional arguments:\n"
+            for uw_arg in "${uw_args[@]}"; do
+                printf "  $uw_arg    ${uw_helps[$uw_arg]}\n"
+            done
+            # Print the suggested values for TGT with a proper offset.
+            for uw_tgt in "${uw_tgts[@]}"; do
+                printf "          * $uw_tgt\n"
+            done
+        fi
+        # Print optional arguments.
+        printf "%s\n" \
+            "" \
+            "Optional arguments:" \
+            "  --help       ${uw_helps[--help]}" \
+            "  --version    ${uw_helps[--version]}" \
+            ""
+        exit 0
+    fi
+    # Normal execution - continue.
+    return
+}
+
+#
+# uw
 #
 
-if [[ "${UW_CMD}" == "app-setup" ]]; then
-    printf '\nsource "$(which '"uw"')" --bashrc 2>/dev/null || true\n' >> "${HOME}/.bashrc"
-    exit 0
-fi
-
-#
-# uw app-reset
-#
-
-if [[ "${UW_CMD}" == "app-reset" ]]; then
-    # Extra newlines will not be removed by this.
-    sed -i '/source "$(which '"uw"')" --bashrc 2>\/dev\/null || true/d' "${HOME}/.bashrc"
-    exit 0
+if [[ -z "$_uw_cli_command" ]]; then
+    uw_fatal "uw: The command must be specified."
 fi
 
 #
@@ -265,79 +432,59 @@ fi
 # and executes scripts part-by-part, a simple implementation might cause weird errors.
 function _uw_update
 {
-    set -e
-    curl -o "$(which "uw")" https://raw.githubusercontent.com/deohayer/uw/main/uw
+    curl -o "$(which uw)" https://raw.githubusercontent.com/deohayer/uw/main/uw
     exit 0
 }
 
-if [[ "${UW_CMD}" == "app-update" ]]; then
+if [[ "$_uw_cli_command" == "app-update" ]]; then
+    uw_setup $# "$@"
     _uw_update
+fi
+
+#
+# uw app-setup
+#
+
+if [[ "$_uw_cli_command" == "app-setup" ]]; then
+    uw_setup $# "$@"
+    printf '\nsource "$(which uw)" --bashrc 2>/dev/null || true\n' >> "${HOME}/.bashrc"
+    exit 0
+fi
+
+#
+# uw app-reset
+#
+
+if [[ "$_uw_cli_command" == "app-reset" ]]; then
+    uw_setup $# "$@"
+    sed -i '/source "$(which uw)" --bashrc 2>\/dev\/null || true/d' "${HOME}/.bashrc"
+    exit 0
 fi
 
 #
 # uw init
 #
 
-if [[ "${UW_CMD}" == "init" ]]; then
-    # Overwrite UW_WS If not provided, defaults to the current directory.
-    UW_WS="$(realpath "${1:-"${PWD}"}")"
-    mkdir -p "${UW_WS}"
-    # The directory is not empty.
-    if [[ -n "$(ls -A ${UW_WS})" ]]; then
-        _uw_error "uw init: Not an empty directory: ${UW_WS}"
+if [[ "$_uw_cli_command" == "init" ]]; then
+    uw_setup $# "$@"
+    # Default to the current directory.
+    declare -r _uw_dir="$(realpath "${1:-"$PWD"}")"
+    mkdir -p "$_uw_dir"
+    # The directory is already a workspace.
+    if [[ -e "$_uw_dir/.uw" ]]; then
+        uw_fatal "uw init: Already initialized: $_uw_dir"
     fi
-    # Populate .git* and README.md.
-    touch "${UW_WS}/.gitattributes"
-    touch "${UW_WS}/.gitignore"
-    touch "${UW_WS}/.gitmodules"
-    touch "${UW_WS}/README.md"
-    echo "$(_uw_str '
-        *
-        !.gitattributes
-        !.gitignore
-        !.gitmodules
-        !.uw
-        !.uw/**
-        !.vscode
-        !.vscode/**
-        !README.md
-        ')" > "${UW_WS}/.gitignore"
-    # Populate .vscode
-    mkdir -p "${UW_WS}/.vscode"
-    echo "$(_uw_str '
-        *
-        !.gitignore
-        !*.json
-        ')" > "${UW_WS}/.vscode/.gitignore"
-    echo "$(_uw_str '
-        {
-            "editor.bracketPairColorization.enabled": false,
-            "files.watcherExclude": {
-                "**": true
-            }
-        }
-        ')" > "${UW_WS}/.vscode/settings.json"
     # Populate .uw.
-    mkdir -p "${UW_WS}/.uw"
-    echo "$(_uw_str '
-        *
-        !.gitignore
-        !*.sh
-        ')" > "${UW_WS}/.uw/.gitignore"
+    mkdir -p "$_uw_dir/.uw"
     # Populate env.sh
-    echo "$(_uw_str '
-        # This script is sourced before execution of any uw* script.
-        ')" > "${UW_WS}/.uw/env.sh"
+    printf '# This script is sourced before execution of any uw* script.\n' > "$_uw_dir/.uw/env.sh"
     # Populate uw*.sh
-    for i in "${UW_CMDS_LOCAL[@]}"; do
-        echo "$(_uw_str '
-            #!/usr/bin/env bash
-            uw_init "$#" "$@"
-            ###############################################################################
-
-            echo "Not implemented." >&2
-            exit 1
-            ')" > "${UW_WS}/.uw/$i.sh"
+    for i in "${_uw_cli_scripts[@]}"; do
+        printf "%s\n" \
+            '#!/usr/bin/env bash' \
+            'uw_setup $# "$@"' \
+            'uw_fatal "Not implemented."' \
+            > "$_uw_dir/.uw/$i.sh"
     done
     # Success.
     exit 0
@@ -347,155 +494,28 @@ fi
 # uw uw*
 #
 
-function uw_init()
-{
-    # Arguments - whatever was passed to the script.
-    local args=("${@:2:$1}")
-    # Targets - a list of possible values for the script arguments.
-    local tgts=("${@:$(($1 + 2))}")
-    # If it is a completion request - print all targets and exit.
-    if [[ -n "${UW_COMPLETE}" ]]; then
-        printf "%s\n" "${tgts[@]}"
+for i in "${_uw_cli_scripts[@]}"; do
+    if [[ "$_uw_cli_command" == "$i" ]]; then
+        # This is the value of uw_root that is available to the user.
+        declare -r uw_root="$(_uw_root)"
+        # Fail to execute if not in a workspace.
+        if [[ -z "$uw_root" ]]; then
+            uw_fatal "uw $_uw_cli_command: Only available in a workspace."
+        fi
+        # Execute the script.
+        set -e
+        source "$uw_root/.uw/env.sh"
+        source "$uw_root/.uw/$_uw_cli_command.sh"
         exit 0
     fi
-    # -v/--version
-    if [[ "${args[0]}" == "-v" || "${args[0]}" == "--version" ]]; then
-        echo "${UW_VERSION}"
-        exit 0
-    fi
-    # -h/--help
-    if [[ "${args[0]}" == "-h" || "${args[0]}" == "--help" ]]; then
-        if [[ -z "${tgts[@]}" ]]; then
-            local header="uw ${UW_CMD}"
-        fi
-        # uwa
-        if [[ "${UW_CMD}" == "uwa" ]]; then
-            local header="${header:-"uw uwa TGT"}"
-            printf "$(_uw_str "
-                ${header}
-                ${UW_HELPS[$UW_CMD]}
-                ")\n"
-            if [[ -n "${tgts[*]}" ]]; then
-                printf "$(_uw_str '
-                    \nPositional arguments:
-                      TGT    Target to attach to.
-                    ')\n"
-            fi
-        fi
-        # uwd
-        if [[ "${UW_CMD}" == "uwd" ]]; then
-            local header="${header:-"uw uwd"}"
-            printf "$(_uw_str "
-                ${header}
-                ${UW_HELPS[$UW_CMD]}
-                ")\n"
-        fi
-        # uwp
-        if [[ "${UW_CMD}" == "uwp" ]]; then
-            local header="${header:-"uw uwp STATE"}"
-            printf "$(_uw_str "
-                ${header}
-
-                ${UW_HELPS[$UW_CMD]}
-                ")\n"
-            if [[ -n "${tgts[*]}" ]]; then
-                printf "$(_uw_str '
-                    \nPositional arguments:
-                      STATE    Power state to set.
-                    ')\n"
-            fi
-        fi
-        # uwc
-        if [[ "${UW_CMD}" == "uwc" ]]; then
-            local header="${header:-"uw uwc TGT"}"
-            printf "$(_uw_str "
-                ${header} SRC DST
-
-                ${UW_HELPS[$UW_CMD]}
-
-                Positional arguments:
-                  SRC    Source path.
-                  DST    Destination path.
-                ")\n"
-            if [[ -n "${tgts[*]}" ]]; then
-                printf "  TGT    Target for file transfer.\n"
-            fi
-        fi
-        # uws
-        if [[ "${UW_CMD}" == "uws" ]]; then
-            local header="${header:-"uw uws TGT"}"
-            printf "$(_uw_str "
-                ${header} [CMD...]
-
-                ${UW_HELPS[$UW_CMD]}
-
-                Positional arguments:
-                  CMD    A command to execute. If empty - start an interactive session.
-                ")\n"
-            if [[ -n "${tgts[*]}" ]]; then
-                printf "  TGT    Target for shell.\n"
-            fi
-        fi
-        # uwf, uwb, uwi, uwt
-        if [[ "${UW_CMD}" == "uwf" || "${UW_CMD}" == "uwb" || "${UW_CMD}" == "uwi" || "${UW_CMD}" == "uwt" ]]; then
-            local header="${header:-"uw ${UW_CMD} [TGT...]"}"
-            printf "$(_uw_str "
-                ${header}
-
-                ${UW_HELPS[$UW_CMD]}
-                ")\n"
-            if [[ -n "${tgts[*]}" ]]; then
-                printf "$(_uw_str '
-                    \nPositional arguments:
-                      TGT    Targets for the operation.
-                    ')\n"
-            fi
-        fi
-        # "uwx" "Extension commands."
-        if [[ "${UW_CMD}" == "uwx" ]]; then
-            local header="${header:-"uw ${UW_CMD} [ARG...]"}"
-            printf "$(_uw_str "
-                ${header}
-
-                ${UW_HELPS[$UW_CMD]}
-                ")\n"
-            if [[ -n "${tgts[*]}" ]]; then
-                printf "$(_uw_str '
-                    \nPositional arguments:
-                      ARG    Subcommand and/or arguments.
-                    ')\n"
-            fi
-        fi
-        # Print targets, if any.
-        for i in "${tgts[@]}"; do
-            printf "          * $i\n"
-        done
-        # Print optional arguments.
-        printf "$(_uw_str '
-            \nOptional arguments:
-              -h/--help       Display the help text and exit.
-              -v/--version    Display the version and exit.
-            ')\n\n"
-        exit 0
-    fi
-    # Not a completion request - continue execution.
-    return
-}
-
-for i in "${UW_CMDS_LOCAL[@]}"; do
-    if [[ "$i" != "${UW_CMD}" ]]; then
-        continue
-    fi
-    if [[ -z "${UW_WS}" ]]; then
-        _uw_error "uw ${UW_CMD}: Must be run inside a workspace."
-    fi
-    source "${UW_WS}/.uw/env.sh"
-    source "${UW_WS}/.uw/${UW_CMD}.sh" "$@"
-    exit 0
 done
 
 #
-# Unknown command.
+# uw <cmd>
 #
 
-_uw_error "uw: Unknown command: ${UW_CMD}"
+if [[ "${_uw_cli_command:0:1}" == "-" ]]; then
+    uw_fatal "uw: Unrecognized option: $_uw_cli_command"
+else
+    uw_fatal "uw: Unrecognized command: $_uw_cli_command"
+fi
