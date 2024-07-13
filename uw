@@ -168,13 +168,14 @@ function _uw_completion()
     # All completion suggestions as a single string.
     declare compwords=""
     if [[ -n "$_uw_cli_command" ]]; then
-        # The command completion.
-        # Set COMPREPLY words for options or targets (arguments).
+        # The command completion uses the "--complete" flag.
+        # It outputs both options and values. The output is then grepped by
+        # presense of "-". The grep invertion flag is used for the filtering.
+        declare invert=""
         if [[ "${COMP_WORDS[$COMP_CWORD]:0:1}" == "-" ]]; then
-            compwords="--help --version"
-        else
-            compwords="$(uw --complete "$_uw_cli_command" 2>/dev/null || true)"
+            invert="--invert-match"
         fi
+        compwords="$(uw --complete "$_uw_cli_command" 2>/dev/null | grep "$invert" -E '^-' || true)"
     else
         # The application completion.
         # Dynamically determine the workspace root.
@@ -185,7 +186,7 @@ function _uw_completion()
             _uw_cli_commands+=("${_uw_cli_scripts[@]}")
         fi
         _uw_cli_commands+=("${_uw_cli_globals[@]}")
-        # Set COMPREPLY words for options or commands.
+        # Set compwords for options or commands.
         if [[ "${COMP_WORDS[$COMP_CWORD]:0:1}" == "-" ]]; then
             compwords="${_uw_cli_options[*]}"
         else
@@ -310,8 +311,83 @@ function uw_setup()
     declare -r uw_argv=("${@:2:$uw_argc}")
     # The targets - a list of possible values for the TGT argument.
     declare -r uw_tgts=("${@:$(($uw_argc + 2))}")
+    # Any command must not have positional argument names that exceed three
+    # letters. This is to have a consistent offset for printing uw_tgts and
+    # not calcualte it dynamically.
+    # Each command must define the following:
+    declare uw_usage=""      # A usage string for the help text.
+    declare -a uw_argsp=()   # Positional arguments.
+    declare -a uw_argso=(    # Optional arguments.
+        "--help"
+        "--version"
+    )
+    declare -A uw_helps=(    # Help texts for the arguments.
+        [--help]="${_uw_cli_helps[--help]}"
+        [--version]="${_uw_cli_helps[--version]}"
+    )
+    # app-*
+    if false \
+        || [[ "$_uw_cli_command" == "app-update" ]] \
+        || [[ "$_uw_cli_command" == "app-reset" ]] \
+        || [[ "$_uw_cli_command" == "app-setup" ]] \
+        ; then
+        uw_usage="uw $_uw_cli_command"
+    fi
+    # init
+    if [[ "$_uw_cli_command" == "init" ]]; then
+        uw_usage="uw $_uw_cli_command [DIR]"
+        uw_argsp+=("DIR")
+        uw_helps+=([DIR]="A directory to initialize, defaults to PWD.")
+    fi
+    # uwa
+    if [[ "$_uw_cli_command" == "uwa" ]]; then
+        uw_usage="uw $_uw_cli_command [TGT]"
+        uw_argsp+=("TGT")
+        uw_helps+=([TGT]="A target to attach to.")
+    fi
+    # uwd
+    if [[ "$_uw_cli_command" == "uwd" ]]; then
+        uw_usage="uw $_uw_cli_command"
+    fi
+    # uwp
+    if [[ "$_uw_cli_command" == "uwp" ]]; then
+        uw_usage="uw $_uw_cli_command [TGT]"
+        uw_argsp+=("TGT")
+        uw_helps+=([TGT]="A power state to set.")
+    fi
+    # uwc
+    if [[ "$_uw_cli_command" == "uwc" ]]; then
+        uw_usage="uw $_uw_cli_command [TGT:]SRC [TGT:]DST"
+        uw_argsp+=("SRC")
+        uw_argsp+=("DST")
+        uw_argsp+=("TGT")
+        uw_helps+=([SRC]="Source path.")
+        uw_helps+=([DST]="Destination path.")
+        uw_helps+=([TGT]="A target for file transfer.")
+    fi
+    # uws
+    if [[ "$_uw_cli_command" == "uws" ]]; then
+        uw_usage="uw $_uw_cli_command [TGT] [CMD...]"
+        uw_argsp+=("CMD")
+        uw_argsp+=("TGT")
+        uw_helps+=([CMD]="A command to execute. If empty - start an interactive session.")
+        uw_helps+=([TGT]="A target for shell.")
+    fi
+    # uwf, uwb, uwi, uwt, uwx.
+    if false \
+        || [[ "$_uw_cli_command" == "uwf" ]] \
+        || [[ "$_uw_cli_command" == "uwb" ]] \
+        || [[ "$_uw_cli_command" == "uwi" ]] \
+        || [[ "$_uw_cli_command" == "uwt" ]] \
+        || [[ "$_uw_cli_command" == "uwx" ]] \
+        ; then
+        uw_usage="uw $_uw_cli_command [TGT...]"
+        uw_argsp+=("TGT")
+        uw_helps+=([TGT]="Targets for the operation.")
+    fi
     # uw --complete <cmd>
     if [[ -n "$_uw_cli_option_complete" ]]; then
+        printf "%s\n" "${uw_argso[@]}"
         printf "%s\n" "${uw_tgts[@]}"
         exit 0
     fi
@@ -322,80 +398,6 @@ function uw_setup()
     fi
     # uw <cmd> --help
     if [[ "${uw_argv[0]}" == "--help" ]]; then
-        # Any command must not have positional argument names that exceed three
-        # letters. This is to have a consistent offset for printing uw_tgts and
-        # not calcualte it dynamically.
-        # Each command must define the following:
-        declare uw_usage=""      # A usage string for the help text.
-        declare -a uw_argsp=()   # Positional arguments.
-        declare -a uw_argso=(    # Optional arguments.
-            "--help"
-            "--version"
-        )
-        declare -A uw_helps=(    # Help texts for the positional arguments.
-            [--help]="${_uw_cli_helps[--help]}"
-            [--version]="${_uw_cli_helps[--version]}"
-        )
-        # app-*
-        if false \
-            || [[ "$_uw_cli_command" == "app-update" ]] \
-            || [[ "$_uw_cli_command" == "app-reset" ]] \
-            || [[ "$_uw_cli_command" == "app-setup" ]] \
-            ; then
-            uw_usage="uw $_uw_cli_command"
-        fi
-        # init
-        if [[ "$_uw_cli_command" == "init" ]]; then
-            uw_usage="uw $_uw_cli_command [DIR]"
-            uw_argsp+=("DIR")
-            uw_helps+=([DIR]="A directory to initialize, defaults to PWD.")
-        fi
-        # uwa
-        if [[ "$_uw_cli_command" == "uwa" ]]; then
-            uw_usage="uw $_uw_cli_command [TGT]"
-            uw_argsp+=("TGT")
-            uw_helps+=([TGT]="A target to attach to.")
-        fi
-        # uwd
-        if [[ "$_uw_cli_command" == "uwd" ]]; then
-            uw_usage="uw $_uw_cli_command"
-        fi
-        # uwp
-        if [[ "$_uw_cli_command" == "uwp" ]]; then
-            uw_usage="uw $_uw_cli_command [TGT]"
-            uw_argsp+=("TGT")
-            uw_helps+=([TGT]="A power state to set.")
-        fi
-        # uwc
-        if [[ "$_uw_cli_command" == "uwc" ]]; then
-            uw_usage="uw $_uw_cli_command [TGT:]SRC [TGT:]DST"
-            uw_argsp+=("SRC")
-            uw_argsp+=("DST")
-            uw_argsp+=("TGT")
-            uw_helps+=([SRC]="Source path.")
-            uw_helps+=([DST]="Destination path.")
-            uw_helps+=([TGT]="A target for file transfer.")
-        fi
-        # uws
-        if [[ "$_uw_cli_command" == "uws" ]]; then
-            uw_usage="uw $_uw_cli_command [TGT] [CMD...]"
-            uw_argsp+=("CMD")
-            uw_argsp+=("TGT")
-            uw_helps+=([CMD]="A command to execute. If empty - start an interactive session.")
-            uw_helps+=([TGT]="A target for shell.")
-        fi
-        # uwf, uwb, uwi, uwt, uwx.
-        if false \
-            || [[ "$_uw_cli_command" == "uwf" ]] \
-            || [[ "$_uw_cli_command" == "uwb" ]] \
-            || [[ "$_uw_cli_command" == "uwi" ]] \
-            || [[ "$_uw_cli_command" == "uwt" ]] \
-            || [[ "$_uw_cli_command" == "uwx" ]] \
-            ; then
-            uw_usage="uw $_uw_cli_command [TGT...]"
-            uw_argsp+=("TGT")
-            uw_helps+=([TGT]="Targets for the operation.")
-        fi
         # Print usage.
         printf "$uw_usage\n"
         # Print description.
