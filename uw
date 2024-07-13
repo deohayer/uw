@@ -259,7 +259,7 @@ if [[ -n "$_uw_cli_option_help" ]]; then
         "Uniform Workspace version $_uw_version."
     # Populate the available commands.
     declare -a _uw_cli_commands=()
-    if [[ -n "$uw_root" ]]; then
+    if [[ -n "$(_uw_root)" ]]; then
         _uw_cli_commands+=("${_uw_cli_scripts[@]}")
     fi
     _uw_cli_commands+=("${_uw_cli_globals[@]}")
