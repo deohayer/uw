@@ -7,7 +7,7 @@
 #  * uw_root  - the workspace root, a directory that contains .uw.
 
 # Program version, always updated in a separate tagged commit.
-declare -r _uw_version="0.7.0"
+declare -r _uw_version="0.7.1"
 
 ###############################################################################
 # CLI definitions
