@@ -424,7 +424,7 @@ function uw_setup()
     # uw uw* --daemon [...]
     if [[ "${uw_argv[0]}" == "--daemon" && "$_uw_cli_command" =~ ^uw.$ ]]; then
         # Daemon case.
-        declare -r daemon_dir="$uw_root/.uw/$_uw_cli_command/$(date +"%Y-%m-%d-%H-%M-%S-%N")"
+        declare -r daemon_dir="$uw_root/.uw/log/$_uw_cli_command/$(date +"%Y-%m-%d-%H-%M-%S-%N")"
         declare -r daemon_log="$daemon_dir/log.txt"
         declare -r daemon_pid="$daemon_dir/pid.txt"
         mkdir -p "$daemon_dir"
