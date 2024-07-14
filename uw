@@ -320,7 +320,6 @@ function uw_setup()
     declare -a uw_argso=(    # Optional arguments.
         "--help"
         "--version"
-        "--daemon"
     )
     declare -A uw_helps=(    # Help texts for the arguments.
         [--help]="${_uw_cli_helps[--help]}"
