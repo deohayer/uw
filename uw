@@ -171,11 +171,11 @@ function _uw_completion()
         # The command completion uses the "--complete" flag.
         # It outputs both options and values. The output is then grepped by
         # presense of "-". The grep invertion flag is used for the filtering.
-        declare invert=""
+        declare invert="--invert-match"
         if [[ "${COMP_WORDS[$COMP_CWORD]:0:1}" == "-" ]]; then
-            invert="--invert-match"
+            invert=""
         fi
-        compwords="$(uw --complete "$_uw_cli_command" 2>/dev/null | grep "$invert" -E '^-' || true)"
+        compwords="$(uw --complete "$_uw_cli_command" 2>/dev/null | grep $invert -E '^-' || true)"
     else
         # The application completion.
         # Dynamically determine the workspace root.
