@@ -204,14 +204,6 @@ if [[ -n "$_uw_cli_option_bashrc" ]]; then
     for i in "${_uw_cli_scripts[@]}"; do
         complete -o filenames -o bashdefault -o default -F _uw_completion "$i"
     done
-    # Cleanup, since whatever is defined stays permanently.
-    unset _uw_version
-    unset _uw_cli_command
-    unset _uw_cli_option_help
-    unset _uw_cli_option_bashrc
-    unset _uw_cli_option_version
-    unset _uw_cli_option_complete
-    unset _uw_arg
     return
 fi
 
