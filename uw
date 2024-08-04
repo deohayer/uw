@@ -3,7 +3,7 @@
 # Definitions are scattered, so that they are defined only if needed.
 # Some identifiers are available to the user:
 #  * uw_fail - function to print an error message and exit.
-#  * uw_setup - function to handle command completion and options.
+#  * uw_init - function to handle command completion and options.
 #  * uw_root  - the workspace root, a directory that contains .uw.
 
 # Program version, always updated in a separate tagged commit.
@@ -297,20 +297,11 @@ function uw_fail()
 # This function should be called at the start of each command execution.
 # Generated uw*.sh scripts already include the call. The user is supposed to
 # extend it by providing a list of suggested values for the TGT argument.
-#
-# Parameters:
-#  * uw_argc - a number of arguments passed to the command.
-#  * uw_argv - the next uw_argc values, arguments passed to the command.
-#  * uw_tgts - suggested values for the TGT argument, if applicable.
-function uw_setup()
+function uw_init()
 {
     set -e
-    # The number of arguments.
-    declare -r uw_argc=$1
-    # The arguments.
-    declare -r uw_argv=("${@:2:$uw_argc}")
     # The targets - a list of possible values for the TGT argument.
-    declare -r uw_tgts=("${@:$(($uw_argc + 2))}")
+    declare -n uw_tgts="uw_args"
     # Any command must not have positional argument names that exceed three
     # letters. This is to have a consistent offset for printing uw_tgts and
     # not calcualte it dynamically.
@@ -392,16 +383,18 @@ function uw_setup()
         exit 0
     fi
     # uw <cmd> --version
-    if [[ "${uw_argv[0]}" == "--version" ]]; then
+    if [[ "$1" == "--version" ]]; then
         echo "$_uw_version"
         exit 0
     fi
     # uw <cmd> --help
-    if [[ "${uw_argv[0]}" == "--help" ]]; then
+    if [[ "$1" == "--help" ]]; then
         # Print usage.
         printf "$uw_usage\n"
         # Print description.
-        printf "\n${_uw_cli_helps[$_uw_cli_command]}\n"
+        if [[ -n "$uw_help" ]]; then
+            printf "\n$uw_help\n"
+        fi
         # Print positional arguments.
         if [[ -n "${uw_argsp[*]}" ]]; then
             _uw_print_args "Positional arguments" "uw_argsp" "uw_helps"
@@ -439,7 +432,8 @@ function _uw_update
 }
 
 if [[ "$_uw_cli_command" == "app-update" ]]; then
-    uw_setup $# "$@"
+    declare -r uw_help="${_uw_cli_helps[app-update]}"
+    uw_init "$@"
     _uw_update
 fi
 
@@ -448,7 +442,8 @@ fi
 #
 
 if [[ "$_uw_cli_command" == "app-setup" ]]; then
-    uw_setup $# "$@"
+    declare -r uw_help="${_uw_cli_helps[app-setup]}"
+    uw_init "$@"
     printf '\nsource "$(which uw)" --bashrc 2>/dev/null || true\n' >> "${HOME}/.bashrc"
     exit 0
 fi
@@ -458,7 +453,8 @@ fi
 #
 
 if [[ "$_uw_cli_command" == "app-reset" ]]; then
-    uw_setup $# "$@"
+    declare -r uw_help="${_uw_cli_helps[app-reset]}"
+    uw_init "$@"
     sed -i '/source "$(which uw)" --bashrc 2>\/dev\/null || true/d' "${HOME}/.bashrc"
     exit 0
 fi
@@ -468,7 +464,8 @@ fi
 #
 
 if [[ "$_uw_cli_command" == "init" ]]; then
-    uw_setup $# "$@"
+    declare -r uw_help="${_uw_cli_helps[init]}"
+    uw_init "$@"
     # Default to the current directory.
     declare -r _uw_dir="$(realpath "${1:-"$PWD"}")"
     mkdir -p "$_uw_dir"
@@ -484,7 +481,10 @@ if [[ "$_uw_cli_command" == "init" ]]; then
     for i in "${_uw_cli_scripts[@]}"; do
         printf "%s\n" \
             '#!/usr/bin/env bash' \
-            'uw_setup $# "$@"' \
+            'declare -r uw_help='"\"${_uw_cli_helps[$i]}\"" \
+            'declare -ra uw_args=()' \
+            'uw_init "$@"' \
+            '' \
             'uw_fail "Not implemented."' \
             > "$_uw_dir/.uw/$i.sh"
     done
