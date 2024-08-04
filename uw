@@ -412,6 +412,7 @@ function uw_setup()
         fi
         # Print optional arguments.
         _uw_print_args "Optional arguments" "uw_argso" "uw_helps"
+        echo
         exit 0
     fi
 }
