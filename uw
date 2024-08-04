@@ -2,7 +2,7 @@
 
 # Definitions are scattered, so that they are defined only if needed.
 # Some identifiers are available to the user:
-#  * uw_fatal - function to print an error message and exit.
+#  * uw_fail - function to print an error message and exit.
 #  * uw_setup - function to handle command completion and options.
 #  * uw_root  - the workspace root, a directory that contains .uw.
 
@@ -283,7 +283,7 @@ fi
 # Parameters:
 #  * 1 - the message.
 #  * 2 - the exit code, defaults to 1.
-function uw_fatal()
+function uw_fail()
 {
     echo "$1" >&2
     declare -r code=${2:-1}
@@ -422,7 +422,7 @@ function uw_setup()
 #
 
 if [[ -z "$_uw_cli_command" ]]; then
-    uw_fatal "uw: The command must be specified."
+    uw_fail "uw: The command must be specified."
 fi
 
 #
@@ -474,7 +474,7 @@ if [[ "$_uw_cli_command" == "init" ]]; then
     mkdir -p "$_uw_dir"
     # The directory is already a workspace.
     if [[ -e "$_uw_dir/.uw" ]]; then
-        uw_fatal "uw init: Already initialized: $_uw_dir"
+        uw_fail "uw init: Already initialized: $_uw_dir"
     fi
     # Populate .uw.
     mkdir -p "$_uw_dir/.uw"
@@ -485,7 +485,7 @@ if [[ "$_uw_cli_command" == "init" ]]; then
         printf "%s\n" \
             '#!/usr/bin/env bash' \
             'uw_setup $# "$@"' \
-            'uw_fatal "Not implemented."' \
+            'uw_fail "Not implemented."' \
             > "$_uw_dir/.uw/$i.sh"
     done
     # Success.
@@ -502,7 +502,7 @@ for i in "${_uw_cli_scripts[@]}"; do
         declare -r uw_root="$(_uw_root)"
         # Fail to execute if not in a workspace.
         if [[ -z "$uw_root" ]]; then
-            uw_fatal "uw $_uw_cli_command: Only available in a workspace."
+            uw_fail "uw $_uw_cli_command: Only available in a workspace."
         fi
         # Execute the script.
         set -e
@@ -517,7 +517,7 @@ done
 #
 
 if [[ "${_uw_cli_command:0:1}" == "-" ]]; then
-    uw_fatal "uw: Unrecognized option: $_uw_cli_command"
+    uw_fail "uw: Unrecognized option: $_uw_cli_command"
 else
-    uw_fatal "uw: Unrecognized command: $_uw_cli_command"
+    uw_fail "uw: Unrecognized command: $_uw_cli_command"
 fi
