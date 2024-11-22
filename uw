@@ -11,7 +11,7 @@
 #  * UW_TGTS - suggested values for TGT argument for a particular ".uw/uw*.sh".
 
 # Program version, always updated in a separate tagged commit.
-declare -r UW_VER="0.8.0"
+declare -r UW_VER="0.9.0"
 
 ###############################################################################
 # CLI definitions
